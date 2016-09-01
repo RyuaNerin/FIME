@@ -8,7 +8,15 @@
 #pragma comment(lib, "Imm32.lib")
 
 #ifdef __TEST
+#include <windows.h>
+#include <stdlib.h>
+#include <stdarg.h>
+
+#ifdef _UNICODE
 #include <wchar.h>
+#else
+#include <stdio.h>
+#endif
 
 void DebugLog(const TCHAR *fmt, ...)
 {
@@ -24,7 +32,7 @@ void DebugLog(const TCHAR *fmt, ...)
 
     va_start(va, fmt);
 
-    len = lstrlen(TEXT("FIME: ")) + lvsnprintf(NULL, 0, fmt, va) + 5;
+    len = lstrlen(TEXT("FIME: ")) + lvsnprintf(NULL, 0, fmt, va) + 2;
     str = calloc(len, sizeof(TCHAR));
     if (str == NULL)
     {
@@ -201,6 +209,10 @@ BOOL APIENTRY DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
                 MH_DisableHook(&ImmSetConversionStatus);
                 MH_DisableHook(&ImmAssociateContext);
                 MH_DisableHook(&ImmGetOpenStatus);
+
+                MH_RemoveHook(&ImmSetConversionStatus);
+                MH_RemoveHook(&ImmAssociateContext);
+                MH_RemoveHook(&ImmGetOpenStatus);
 
                 MH_Uninitialize();
 

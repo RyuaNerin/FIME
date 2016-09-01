@@ -3,18 +3,16 @@
 #include <tlhelp32.h>
 
 BOOL IsX86(HANDLE pid);
-BOOL isInjected(DWORD pid, LPCTSTR path, PBYTE* pDllBaseAddress);
+BOOL isInjected(DWORD pid, LPCTSTR moduleName, PBYTE* pDllBaseAddress);
 BOOL injectDll(DWORD pid, LPCTSTR path);
-BOOL uninjectDll(DWORD pid, LPCTSTR path, PBYTE pDllBaseAddress);
+BOOL uninjectDll(DWORD pid, PBYTE pDllBaseAddress);
 
-#ifdef _UNICODE
-#define printf_s    wprintf_s
-#define lstrrchr    wcsrchr
-#else
-#define lstrrchr    strrchr
-#endif
+LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    return DefWindowProc(hWnd, message, wParam, lParam);
+}
 
-int main(void)
+int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdLine, int cmdShow)
 {
     HWND hFFXIV;
     DWORD pid;
@@ -27,17 +25,26 @@ int main(void)
 
     hFFXIV = FindWindow(TEXT("FFXIVGAME"), NULL);
     if (hFFXIV == NULL)
-        return 0;
+    {
+        MessageBox(NULL, TEXT("No permission OR Final Fantasy XIV is not running"), TEXT("FIMEC"), 0);
+        return 1;
+    }
 
     if (GetWindowThreadProcessId(hFFXIV, &pid) == 0 || pid == 0)
-        return 0;
+    {
+        MessageBox(NULL, TEXT("No permission OR Final Fantasy XIV is not running"), TEXT("FIMEC"), 0);
+        return 1;
+    }
 
     hProc = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
     if (hProc == NULL)
     {
         hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
         if (hProc == NULL)
-            return 0;
+        {
+            MessageBox(NULL, TEXT("No permission OR Final Fantasy XIV is not running"), TEXT("FIMEC"), 0);
+            return 1;
+        }
     }
 
     isX86 = IsX86(hProc);
@@ -45,28 +52,30 @@ int main(void)
 
     hModule = GetModuleHandle(NULL);
     if (hModule == NULL)
-        return 0;
-
-    GetModuleFileName(hModule, path, sizeof(path));
-    
-    lstrcpy(lstrrchr(path, TEXT('\\')) + 1, isX86 ? TEXT("FIME32.dll") : TEXT("FIME64.dll"));
-    
-    if (isInjected(pid, path, &pDllBaseAddress))
     {
-        if (!uninjectDll(pid, path, pDllBaseAddress))
-            return 0;
+        MessageBox(NULL, TEXT("No permission OR Final Fantasy XIV is not running"), TEXT("FIMEC"), 0);
+        return 1;
+    }
+    
+    if (isInjected(pid, isX86 ? TEXT("FIME32.dll") : TEXT("FIME64.dll"), &pDllBaseAddress))
+    {
+        if (!uninjectDll(pid, pDllBaseAddress))
+            MessageBox(NULL, TEXT("un-injection failed."), TEXT("FIMEC"), 0);
+        else
+            MessageBox(NULL, TEXT("un-injected"), TEXT("FIMEC"), 0);
 
-        printf_s(TEXT("uninjected\n"));
     }
     else
     {
+        GetModuleFileName(hModule, path, sizeof(path));
+
+        lstrcpy(wcsrchr(path, TEXT('\\')) + 1, isX86 ? TEXT("FIME32.dll") : TEXT("FIME64.dll"));
+
         if (!injectDll(pid, path))
-            return 0;
-
-        printf_s(TEXT("injected\n"));
+            MessageBox(NULL, TEXT("injection failed."), TEXT("FIMEC"), 0);
+        else
+            MessageBox(NULL, TEXT("injected"), TEXT("FIMEC"), 0);
     }
-
-    system("pause");
     
     return 0;
 }
@@ -84,7 +93,7 @@ BOOL IsX86(HANDLE pid)
     return fnIsWow64Process(pid, &b) && b;
 }
 
-BOOL isInjected(DWORD pid, LPCTSTR path, PBYTE* pDllBaseAddress)
+BOOL isInjected(DWORD pid, LPCTSTR moduleName, PBYTE* pDllBaseAddress)
 {
     BOOL res = FALSE;
 
@@ -100,9 +109,8 @@ BOOL isInjected(DWORD pid, LPCTSTR path, PBYTE* pDllBaseAddress)
     {
         do
         {
-            if (!lstrcmp(snapEntry.szExePath, path))
+            if (!lstrcmp(snapEntry.szModule, moduleName))
             {
-                printf_s(TEXT("%s\n"), snapEntry.szModule);
                 *pDllBaseAddress = snapEntry.modBaseAddr;
                 res = TRUE;
                 break;
@@ -116,7 +124,7 @@ BOOL isInjected(DWORD pid, LPCTSTR path, PBYTE* pDllBaseAddress)
 
 BOOL injectDll(DWORD pid, LPCTSTR path)
 {
-    BOOL res = FALSE;
+    BOOL result = FALSE;
 
     HMODULE hKernel32;
     LPTHREAD_START_ROUTINE lpLoadLibrary;
@@ -126,16 +134,14 @@ BOOL injectDll(DWORD pid, LPCTSTR path)
 
     HANDLE hProcess;
     HANDLE hThread;
+
+    DWORD exitCode;
     
     hKernel32 = GetModuleHandle(TEXT("kernel32.dll"));
     if (hKernel32 == NULL)
         return FALSE;
 
-#if _UNICODE
     lpLoadLibrary = (LPTHREAD_START_ROUTINE)GetProcAddress(hKernel32, "LoadLibraryW");
-#else
-    lpLoadLibrary = (LPTHREAD_START_ROUTINE)GetProcAddress(hKernel32, "LoadLibraryA");
-#endif
     if (lpLoadLibrary == NULL)
         return FALSE;
 
@@ -153,19 +159,21 @@ BOOL injectDll(DWORD pid, LPCTSTR path)
             if (hThread != NULL)
             {
                 WaitForSingleObject(hThread, INFINITE);
-                res = TRUE;
+                result = GetExitCodeThread(hThread, &exitCode) && exitCode;
+
+                CloseHandle(hThread);
             }
-            CloseHandle(hThread);
         }
-        VirtualFreeEx(hProcess, pBuff, pBuffSize, MEM_RELEASE);
+
+        VirtualFreeEx(hProcess, pBuff, 0, MEM_RELEASE);
     }
 
     CloseHandle(hProcess);
 
-    return res;
+    return result;
 }
 
-BOOL uninjectDll(DWORD pid, LPCTSTR path, PBYTE pDllBaseAddress)
+BOOL uninjectDll(DWORD pid, PBYTE pDllBaseAddress)
 {
     BOOL result = FALSE;
 
@@ -174,6 +182,8 @@ BOOL uninjectDll(DWORD pid, LPCTSTR path, PBYTE pDllBaseAddress)
 
     HANDLE hProcess;
     HANDLE hThread;
+
+    DWORD exitCode;
 
     hKernel32 = GetModuleHandle(TEXT("kernel32.dll"));
     if (hKernel32 == NULL)
@@ -191,10 +201,11 @@ BOOL uninjectDll(DWORD pid, LPCTSTR path, PBYTE pDllBaseAddress)
     if (hThread != NULL)
     {
         WaitForSingleObject(hThread, INFINITE);
-        result = TRUE;
+        result = GetExitCodeThread(hThread, &exitCode) && exitCode;
+
+        CloseHandle(hThread);
     }
 
-    CloseHandle(hThread);
     CloseHandle(hProcess);
 
     return result;

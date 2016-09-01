@@ -44,8 +44,11 @@ namespace FIME
             [DllImport("kernel32.dll")]
             public static extern IntPtr WaitForSingleObject(IntPtr hHandle, UInt32 dwMilliseconds);
 
-            [DllImport("kernel32.dll", SetLastError=true, ExactSpelling=true)]
+            [DllImport("kernel32.dll", ExactSpelling = true)]
             public static extern bool VirtualFreeEx(IntPtr hProcess, IntPtr lpAddress, int dwSize, FreeType dwFreeType);
+
+            [DllImport("kernel32.dll")]
+            public static extern bool GetExitCodeThread(IntPtr hThread, out int lpExitCode);
 
             [Flags]
             public enum ProcessAccessFlags : uint
@@ -186,7 +189,9 @@ namespace FIME
                         if (hThread != IntPtr.Zero)
                         {
                             NativeMethods.WaitForSingleObject(hThread, 0xFFFFFFFF);
-                            return true;
+
+                            int exitCode;
+                            return NativeMethods.GetExitCodeThread(hThread, out exitCode) && exitCode != 0;
                         }
                     }
                 }
@@ -197,7 +202,7 @@ namespace FIME
                     NativeMethods.CloseHandle(hThread);
 
                 if (hVAlloc != IntPtr.Zero)
-                    NativeMethods.VirtualFreeEx(hProcess, hVAlloc, buffSize, NativeMethods.FreeType.Release);
+                    NativeMethods.VirtualFreeEx(hProcess, hVAlloc, 0, NativeMethods.FreeType.Release);
 
                 if (hProcess != IntPtr.Zero)
                     NativeMethods.CloseHandle(hProcess);
