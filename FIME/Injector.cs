@@ -118,6 +118,8 @@ namespace FIME
         public static bool Inject()
         {
             var ffxiv = NativeMethods.FindWindow("FFXIVGAME", null);
+            if (ffxiv == IntPtr.Zero)
+                return false;
             
             int pid;
             if (NativeMethods.GetWindowThreadProcessId(ffxiv, out pid) == 0)
@@ -143,7 +145,6 @@ namespace FIME
 
             var x86 = IsX86(hProc);
 
-            //var dllPath = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), x86 ? "FIME32.dll" : "FIME64.dll");
             var dllPath = Path.Combine(Path.GetTempPath(), x86 ? "FIME32.dll" : "FIME64.dll");
             try
             {
@@ -167,8 +168,6 @@ namespace FIME
             var hProcess = IntPtr.Zero;
             var hVAlloc = IntPtr.Zero;
             var hThread = IntPtr.Zero;
-            int buffSize = 0;
-            IntPtr lpThreadId;
             try
             {
                 hProcess = NativeMethods.OpenProcess(NativeMethods.ProcessAccessFlags.All, false, pid);
@@ -176,7 +175,7 @@ namespace FIME
                     return false;
                 
                 dllPath += "\0";
-                buffSize = Encoding.Unicode.GetByteCount(dllPath);
+                int buffSize = Encoding.Unicode.GetByteCount(dllPath);
                 var buff = Encoding.Unicode.GetBytes(dllPath);
 
                 hVAlloc = NativeMethods.VirtualAllocEx(hProcess, IntPtr.Zero, new IntPtr(buffSize), NativeMethods.AllocationType.Commit, NativeMethods.MemoryProtection.ReadWrite);
@@ -185,6 +184,7 @@ namespace FIME
                     IntPtr lpNumberOfBytesWritten;
                     if (NativeMethods.WriteProcessMemory(hProcess, hVAlloc, buff, buffSize, out lpNumberOfBytesWritten))
                     {
+                        IntPtr lpThreadId;
                         hThread = NativeMethods.CreateRemoteThread(hProcess, IntPtr.Zero, 0, lpLoadLibrary, hVAlloc, 0, out lpThreadId);
                         if (hThread != IntPtr.Zero)
                         {
