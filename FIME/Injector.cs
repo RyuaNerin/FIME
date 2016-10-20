@@ -11,7 +11,7 @@ namespace FIME
         private static class NativeMethods
         {
             [DllImport("user32.dll", CharSet = CharSet.Auto)]
-            public static extern IntPtr FindWindow(string ZeroOnly, string lpWindowName);
+            public static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string lpszWindow);
 
             [DllImport("user32.dll", CharSet = CharSet.Auto)]
             public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out int lpdwProcessId);
@@ -23,7 +23,7 @@ namespace FIME
             [DllImport("kernel32.dll", CharSet = CharSet.Auto)]
             public static extern IntPtr GetModuleHandle(string lpModuleName);
 
-            [DllImport("kernel32", CharSet = CharSet.Ansi, ExactSpelling = true)]
+            [DllImport("kernel32.dll", CharSet = CharSet.Ansi, ExactSpelling = true)]
             public static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
 
             [DllImport("kernel32.dll")]
@@ -117,10 +117,17 @@ namespace FIME
 
         public static bool Inject()
         {
-            var ffxiv = NativeMethods.FindWindow("FFXIVGAME", null);
-            if (ffxiv == IntPtr.Zero)
-                return false;
-            
+            var result = false;
+            var hwnd = IntPtr.Zero;
+
+            while ((hwnd = NativeMethods.FindWindowEx(IntPtr.Zero, hwnd, "FFXIVGAME", null)) != IntPtr.Zero)
+                result |= Inject(hwnd);
+
+            return result;
+        }
+
+        private static bool Inject(IntPtr ffxiv)
+        {
             int pid;
             if (NativeMethods.GetWindowThreadProcessId(ffxiv, out pid) == 0)
                 return false;

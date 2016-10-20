@@ -46,9 +46,9 @@ namespace FIME
                 }
             }
             catch
-            {
-                MessageBox.Show(this, "적용 실패 :(", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+            { }
+
+            MessageBox.Show(this, "적용 실패 :(", this.Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 }
