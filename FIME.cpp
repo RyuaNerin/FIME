@@ -53,7 +53,7 @@ FIME_CLIENT FFXIVX64 =
 
 FIME_CLIENT FFXIVX32 =
 {
-    L"ffxiv_dx9.exe",
+    L"ffxiv.exe",
     16943856,
     0x012F5000,
     {
