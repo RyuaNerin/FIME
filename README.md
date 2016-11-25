@@ -25,6 +25,7 @@
 ## 사용방법
 
 1. [여기](https://github.com/RyuaNerin/FIME/releases/latest) 에서 마지막 릴리즈를 **적당한 위치** 에 다운로드 해주세요.
+
   |이름|x64 OS 지원|x86 OS 지원|dx11 지원|
   |:-:|:-:|:-:|:-:|
   |`FIME32.exe`|O|O|X|
