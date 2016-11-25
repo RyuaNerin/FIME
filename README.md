@@ -25,8 +25,10 @@
 ## 사용방법
 
 1. [여기](https://github.com/RyuaNerin/FIME/releases/latest) 에서 마지막 릴리즈를 **적당한 위치** 에 다운로드 해주세요.
-  - dx11 를 사용하시는분은 `FIME_dx11.exe` 를
-  - dx11 를 사용하지 않으시는분은 `FIME.exe` 를 다운로드해주세요.
+  |이름|x64 OS 지원|x86 OS 지원|dx11 지원|
+  |:-:|:-:|:-:|:-:|
+  |`FIME32.exe`|O|O|X|
+  |`FIME64.exe`|O|X|O|
 
 2. 파이널 판타지 14 를 실행 후 다운로드 받은 파일을 실행해주세요.
 

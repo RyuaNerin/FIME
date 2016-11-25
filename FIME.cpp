@@ -1,66 +1,115 @@
-﻿#include <windows.h>
+﻿#include <regex>
+#include <memory>
+
+#include <windows.h>
 #include <tlhelp32.h>
 #include <Psapi.h>
 #include <winhttp.h>
-#include <regex>
 
 #include "resource.h"
 
-#define PROJECT_NAME            L"FIME"
+#define PROJECT_NAME            L"FIME v" TEXT(VERSION_STR)
 
-// 2016.11.21 (3.15)
+#define FFXIV_VERSION           L"v3.15, 2016.10.04.0000.0000(2167201, ex1:2016.09.21.0000.0000)"
 
-#ifdef _WIN64
-#define FFXIV_PROCESS_NAME      L"ffxiv_dx11.exe"
-#define FFXIV_EXE_FILE_SIZE     23937264
-#define FFXIV_BASE_MODULE_SIZE  0x01A40000
-#define FFXIV_MEMORY_OFFSET     0x0026AEA1
+typedef struct _FIME_PATCH
+{
+    const size_t Offset;
+    const char* newBytes;
+    const char* chkBytes;
+    const char* oldBytes;
+} FIME_PATCH;
+typedef struct _FIME_CLIENT
+{
+    const wchar_t*      processName;
+    const size_t        exeSize;
+    const size_t        moduleSize;
+    const FIME_PATCH    patches[3];
+} FIME_CLIENT;
 
-BYTE newBytes[] = { 0xEB };
-BYTE chkBytes[] = { 0xEB, 0x1B, 0x48, 0x8B, 0x86, 0x90, 0x31, 0x00, 0x00, 0x0F, 0xBE, 0xD1, 0x48, 0x8D, 0x8E };
-BYTE oldBytes[] = { 0x74, 0x1B, 0x48, 0x8B, 0x86, 0x90, 0x31, 0x00, 0x00, 0x0F, 0xBE, 0xD1, 0x48, 0x8D, 0x8E };
-#else
-#define FFXIV_PROCESS_NAME      L"ffxiv.exe"
-#define FFXIV_EXE_FILE_SIZE     16943856
-#define FFXIV_BASE_MODULE_SIZE  0x012F5000
-#define FFXIV_MEMORY_OFFSET     0x001EE0B3
-
-BYTE newBytes[] = { 0xEB };
-BYTE chkBytes[] = { 0xEB, 0x1C, 0x8B, 0x93, 0x5C, 0x22, 0x00, 0x00, 0x8B, 0x52, 0x2C, 0x0F, 0xBE, 0xC0, 0x50 };
-BYTE oldBytes[] = { 0x74, 0x1C, 0x8B, 0x93, 0x5C, 0x22, 0x00, 0x00, 0x8B, 0x52, 0x2C, 0x0F, 0xBE, 0xC0, 0x50 };
+#if _WIN64
+FIME_CLIENT FFXIVX64 = 
+{
+    L"ffxiv_dx11.exe",
+    23937264,
+    0x01A40000,
+    {
+        {
+            0x0026AEA1,
+            "\xEB",
+            "\xEB\x1B\x48\x8B\x86\x90\x31\x00\x00\x0F\xBE\xD1\x48\x8D\x8E\x90\x31\x00\x00\xFF\x50\x58\xC6\x86",
+            "\x74\x1B\x48\x8B\x86\x90\x31\x00\x00\x0F\xBE\xD1\x48\x8D\x8E\x90\x31\x00\x00\xFF\x50\x58\xC6\x86"
+        },
+        {
+            0x008C8B32,
+            "\xEB",
+            "\xEB\x24\x48\x8B\x4E\x08\x48\x8B\x01\xFF\x50\x38\x8B\x96\x80\x04\x00\x00\x4C\x8B\x00\x48\x8B\xC8",
+            "\x74\x24\x48\x8B\x4E\x08\x48\x8B\x01\xFF\x50\x38\x8B\x96\x80\x04\x00\x00\x4C\x8B\x00\x48\x8B\xC8"
+        },
+        { 0, }
+    }
+};
 #endif
+
+FIME_CLIENT FFXIVX32 =
+{
+    L"ffxiv_dx9.exe",
+    16943856,
+    0x012F5000,
+    {
+        {
+            0x001EE0B3,
+            "\xEB",
+            "\xEB\x1C\x8B\x93\x5C\x22\x00\x00\x8B\x52\x2C\x0F\xBE\xC0\x50\x8D\x8B\x5C\x22\x00\x00\xFF\xD2\xC6",
+            "\x74\x1C\x8B\x93\x5C\x22\x00\x00\x8B\x52\x2C\x0F\xBE\xC0\x50\x8D\x8B\x5C\x22\x00\x00\xFF\xD2\xC6"
+        },
+        {
+            0x00710FC3,
+            "\xEB",
+            "\xEB\x20\x8B\x4E\x04\x8B\x11\x8B\x42\x1C\xFF\xD0\x8B\x8E\x9C\x03\x00\x00\x8B\x10\x8B\x52\x04\x51",
+            "\x74\x20\x8B\x4E\x04\x8B\x11\x8B\x42\x1C\xFF\xD0\x8B\x8E\x9C\x03\x00\x00\x8B\x10\x8B\x52\x04\x51"
+        },
+        { 0, }
+    }
+};
+
+enum RELEASE_RESULT : DWORD
+{
+    LATEST,
+    NEW_RELEASE,
+    NETWORK_ERROR,
+    PARSING_ERROR
+};
 
 #define MESSAGEBOX_INFOMATION(MSG)  MessageBox(NULL, TEXT(MSG), PROJECT_NAME, MB_OK | MB_ICONINFORMATION)
 #define MESSAGEBOX_ASTERISK(MSG)    MessageBox(NULL, TEXT(MSG), PROJECT_NAME, MB_OK | MB_ICONASTERISK)
 
-LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
-{
-    return DefWindowProc(hWnd, message, wParam, lParam);
-}
-
-DWORD checkLatestRelease(LPWSTR url);
-BOOL getFFXIVModule(DWORD pid, PBYTE* modBaseAddr, DWORD* modBaseSize);
+RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, DWORD cbUrl);
+BOOL getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr, DWORD* modBaseSize);
 DWORD getFileSize(LPCWSTR path);
-int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdLine, int cmdShow)
-{
-    TCHAR filePath[MAX_PATH];
 
-    switch (checkLatestRelease(filePath))
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int cmdShow)
+{
+    WCHAR filePath[4096];
+
+    switch (checkLatestRelease(filePath, sizeof(filePath)))
     {
-        case 0: break;
-        case 1:
+        case LATEST:
+            break;
+
+        case NEW_RELEASE:
             MESSAGEBOX_INFOMATION("최신 버전이 릴리즈 되었습니다!");
-            ShellExecute(NULL, NULL, filePath, NULL, NULL, SW_SHOW);
+            ShellExecute(NULL, NULL, filePath, NULL, NULL, SW_SHOWNORMAL);
             return 1;
-        case -1:
+
+        case NETWORK_ERROR:
             if (MessageBox(NULL, L"최신 릴리즈 정보를 가져오지 못하였습니다.\n계속 실행하시겠습니까?", PROJECT_NAME, MB_YESNO | MB_ICONQUESTION) == IDNO)
                 return -1;
-        case -2:
+
+        case PARSING_ERROR:
             MESSAGEBOX_ASTERISK("최신 릴리즈 정보를 가져오는 중 오류가 발생하였습니다.");
             return -1;
     }
-
-    BOOL res = FALSE;
 
     PROCESSENTRY32 entry = { 0, };
     entry.dwSize = sizeof(PROCESSENTRY32);
@@ -72,66 +121,78 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmd
         return 1;
     }
 
+    bool res = false;
+
+    FIME_CLIENT* client;
+    const FIME_PATCH* patch;
+
     DWORD pid;
     HANDLE hProcess;
 
     PBYTE modBaseAddr;
     DWORD modBaseSize;
 
-    BYTE buff[sizeof(oldBytes)];
+    BYTE buff[64];
 
     if (Process32First(snapshot, &entry))
     {
         while (Process32Next(snapshot, &entry))
         {
-            if (lstrcmp(entry.szExeFile, FFXIV_PROCESS_NAME) == 0)
+            client = nullptr;
+
+#if _WIN64
+            if (lstrcmp(entry.szExeFile, FFXIVX64.processName) == 0)
+                client = &FFXIVX64;
+            else
+#endif
+            if (lstrcmp(entry.szExeFile, FFXIVX32.processName) == 0)
+                client = &FFXIVX32;
+
+            if (client != nullptr)
             {
                 pid = entry.th32ProcessID;
 
-                if (getFFXIVModule(pid, &modBaseAddr, &modBaseSize))
+                if (getFFXIVModule(pid, client->processName, &modBaseAddr, &modBaseSize))
                 {
-                    if (modBaseSize != FFXIV_BASE_MODULE_SIZE)
-                    {
-                        MESSAGEBOX_ASTERISK("지원되지 않는 클라이언트 버전입니다!");
+                    if (modBaseSize != client->moduleSize)
                         continue;
-                    }
 
-                    hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+                    hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION | PROCESS_VM_READ | PROCESS_VM_WRITE, FALSE, pid);
                     if (hProcess == NULL)
                     {
                         MESSAGEBOX_ASTERISK("관리자 권한으로 실행시켜주세요!");
                         return 1;
                     }
 
-                    if (GetModuleFileNameEx(hProcess, NULL, filePath, MAX_PATH) == 0)
+                    if (GetModuleFileNameEx(hProcess, NULL, filePath, sizeof(filePath) / sizeof(WCHAR)) == 0)
                     {
                         MESSAGEBOX_ASTERISK("관리자 권한으로 실행시켜주세요!");
                         return 1;
                     }
 
-                    if (getFileSize(filePath) != FFXIV_EXE_FILE_SIZE)
-                    {
-                        MESSAGEBOX_ASTERISK("지원되지 않는 클라이언트 버전입니다!");
+                    if (getFileSize(filePath) != client->exeSize)
                         continue;
-                    }
 
-                    ReadProcessMemory(hProcess, modBaseAddr + FFXIV_MEMORY_OFFSET, buff, sizeof(oldBytes), NULL);
-                    if (memcmp(buff, chkBytes, sizeof(chkBytes)) == 0)
+                    patch = client->patches;
+                    do
                     {
-                        res = TRUE;
-                    }
-                    else
-                    {
-                        if (memcmp(buff, oldBytes, sizeof(oldBytes)) != 0)
+                        ReadProcessMemory(hProcess, modBaseAddr + patch->Offset, buff, strlen(patch->chkBytes), NULL);
+                        if (memcmp(buff, patch->chkBytes, strlen(patch->chkBytes)) == 0)
                         {
-                            MESSAGEBOX_ASTERISK("지원되지 않는 클라이언트 버전입니다!");
+                            res |= true;
                         }
                         else
                         {
-                            WriteProcessMemory(hProcess, modBaseAddr + FFXIV_MEMORY_OFFSET, newBytes, sizeof(newBytes), NULL);
-                            res = TRUE;
+                            if (memcmp(buff, patch->oldBytes, strlen(patch->oldBytes)) == 0)
+                            {
+                                WriteProcessMemory(hProcess, modBaseAddr + patch->Offset, patch->newBytes, strlen(patch->newBytes), NULL);
+                                res |= true;
+                            }
                         }
+
+                        patch++;
                     }
+                    while (patch->Offset != 0);
 
                     CloseHandle(hProcess);
                 }
@@ -143,24 +204,27 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmd
 
     if (res)
         MESSAGEBOX_INFOMATION("성공적으로 적용했습니다!");
+    else
+        MESSAGEBOX_INFOMATION("파이널 판타지 14 가 실행중이 아니거나, 지원되지 않는 버전입니다.\n\n지원되는 클라이언트 버전 : " FFXIV_VERSION);
 
     return 0;
 }
 
-DWORD checkLatestRelease(LPWSTR lpUrl)
+RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, DWORD cbUrl)
 {
 #define HOST    L"api.github.com"
 #define PATH    L"/repos/RyuaNerin/FIME/releases/latest"
 
-    DWORD result = -1;
+    RELEASE_RESULT result = NETWORK_ERROR;
 
-    BOOL      bResults;
+    BOOL      bResults = FALSE;
     HINTERNET hSession = NULL;
     HINTERNET hConnect = NULL;
     HINTERNET hRequest = NULL;
 
-    CHAR    buf[40960] = { 0, };
-    DWORD   read;
+    std::string response;
+    DWORD dwSize;
+    DWORD dwRead;
 
     hSession = WinHttpOpen(PROJECT_NAME, WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (hSession)
@@ -172,34 +236,64 @@ DWORD checkLatestRelease(LPWSTR lpUrl)
     if (bResults)
         bResults = WinHttpReceiveResponse(hRequest, NULL);
     if (bResults)
-        bResults = WinHttpReadData(hRequest, (LPVOID)buf, sizeof(buf), &read);
+    {
+        size_t dwOffset;
+        do
+        {
+            dwSize = 0;
+            bResults = WinHttpQueryDataAvailable(hRequest, &dwSize);
+            if (!bResults || dwSize == 0)
+                break;
+
+            while (dwSize > 0)
+            {
+                dwOffset = response.size();
+                response.resize(dwOffset + dwSize);
+
+                bResults = WinHttpReadData(hRequest, &response[dwOffset], dwSize, &dwRead);
+                if (!bResults)
+                {
+                    dwRead = 0;
+                    break;
+                }
+
+                response.resize(dwOffset + dwRead);
+
+                if (dwRead == 0)
+                    break;
+
+                dwSize -= dwRead;
+            }
+        } while (true);
+    }
     if (bResults)
     {
-        result = -2;
+        result = PARSING_ERROR;
 
-        std::string str(buf);
-        std::smatch match;
+        int length = MultiByteToWideChar(CP_UTF8, 0, response.c_str(), (int)response.size(), NULL, 0);
+        std::unique_ptr<wchar_t[]> wbuf(new wchar_t[length + 1]);
+        memset(wbuf.get(), 0, length * sizeof(wchar_t));
+        MultiByteToWideChar(CP_UTF8, 0, response.c_str(), (int)response.size(), wbuf.get(), length);
 
-        std::regex regex_tag("\"tag_name\"[ \\t]*:[ \\t]*\"([^\"]+)\"");
+        std::wstring str(wbuf.get());
+        std::wsmatch match;
+
+        std::wregex regex_tag(L"\"tag_name\"[ \\t]*:[ \\t]*\"([^\"]+)\"");
         if (std::regex_search(str, match, regex_tag))
         {
-            if (match[1].compare(VERSION_STR) == 0)
+            if (match[1].compare(TEXT(VERSION_STR)) == 0)
             {
-                result = 0;
+                result = LATEST;
             }
             else
             {
-                std::regex regex_url("\"html_url\"[ \\t]*:[ \\t]*\"([^\"]+)\"");
+                std::wregex regex_url(L"\"html_url\"[ \\t]*:[ \\t]*\"([^\"]+)\"");
                 if (std::regex_search(str, match, regex_url))
                 {
-                    result = 1;
+                    result = NEW_RELEASE;
 
-                    std::string url = match[1];
-                    std::wstring wurl = L"";
-
-                    wurl.assign(url.begin(), url.end());
-
-                    wurl.copy(lpUrl, wurl.length(), 0);
+                    std::wstring url = match[1];
+                    url.copy(lpUrl, min(url.length(), cbUrl), 0);
                 }
             }
         }
@@ -224,7 +318,7 @@ DWORD getFileSize(LPCWSTR path)
     return size;
 }
 
-BOOL getFFXIVModule(DWORD pid, PBYTE* modBaseAddr, DWORD* modBaseSize)
+BOOL getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr, DWORD* modBaseSize)
 {
     BOOL res = FALSE;
 
@@ -238,7 +332,7 @@ BOOL getFFXIVModule(DWORD pid, PBYTE* modBaseAddr, DWORD* modBaseSize)
         {
             do
             {
-                if (lstrcmp(snapEntry.szModule, FFXIV_PROCESS_NAME) == 0)
+                if (lstrcmp(snapEntry.szModule, lpModuleName) == 0)
                 {
                     *modBaseAddr = snapEntry.modBaseAddr;
                     *modBaseSize = snapEntry.modBaseSize;
@@ -251,4 +345,9 @@ BOOL getFFXIVModule(DWORD pid, PBYTE* modBaseAddr, DWORD* modBaseSize)
     }
 
     return res;
+}
+
+LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    return DefWindowProc(hWnd, message, wParam, lParam);
 }
