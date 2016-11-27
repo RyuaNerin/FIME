@@ -15,16 +15,17 @@
 typedef struct _FIME_PATCH
 {
     const size_t Offset;
-    const char* newBytes;
-    const char* chkBytes;
-    const char* oldBytes;
+    const size_t newLength;
+    const char*  newBytes;
+    const char*  oldBytes;
 } FIME_PATCH;
 typedef struct _FIME_CLIENT
 {
     const wchar_t*      processName;
     const size_t        exeSize;
     const size_t        moduleSize;
-    const FIME_PATCH    patches[3];
+    const int           patchCount;
+    const FIME_PATCH*   patches;
 } FIME_CLIENT;
 
 #if _WIN64
@@ -33,20 +34,20 @@ FIME_CLIENT FFXIVX64 =
     L"ffxiv_dx11.exe",
     23937264,
     0x01A40000,
-    {
+    2,
+    new FIME_PATCH[2] {
         {
             0x0026AEA1,
-            "\xEB",
+            1,
             "\xEB\x1B\x48\x8B\x86\x90\x31\x00\x00\x0F\xBE\xD1\x48\x8D\x8E\x90\x31\x00\x00\xFF\x50\x58\xC6\x86",
             "\x74\x1B\x48\x8B\x86\x90\x31\x00\x00\x0F\xBE\xD1\x48\x8D\x8E\x90\x31\x00\x00\xFF\x50\x58\xC6\x86"
         },
         {
             0x008C8B32,
-            "\xEB",
+            1,
             "\xEB\x24\x48\x8B\x4E\x08\x48\x8B\x01\xFF\x50\x38\x8B\x96\x80\x04\x00\x00\x4C\x8B\x00\x48\x8B\xC8",
             "\x74\x24\x48\x8B\x4E\x08\x48\x8B\x01\xFF\x50\x38\x8B\x96\x80\x04\x00\x00\x4C\x8B\x00\x48\x8B\xC8"
-        },
-        { 0, }
+        }
     }
 };
 #endif
@@ -56,21 +57,28 @@ FIME_CLIENT FFXIVX32 =
     L"ffxiv.exe",
     16943856,
     0x012F5000,
-    {
+    2,
+    new FIME_PATCH[2] {
         {
             0x001EE0B3,
-            "\xEB",
+            1,
             "\xEB\x1C\x8B\x93\x5C\x22\x00\x00\x8B\x52\x2C\x0F\xBE\xC0\x50\x8D\x8B\x5C\x22\x00\x00\xFF\xD2\xC6",
             "\x74\x1C\x8B\x93\x5C\x22\x00\x00\x8B\x52\x2C\x0F\xBE\xC0\x50\x8D\x8B\x5C\x22\x00\x00\xFF\xD2\xC6"
         },
         {
             0x00710FC3,
-            "\xEB",
+            1,
             "\xEB\x20\x8B\x4E\x04\x8B\x11\x8B\x42\x1C\xFF\xD0\x8B\x8E\x9C\x03\x00\x00\x8B\x10\x8B\x52\x04\x51",
             "\x74\x20\x8B\x4E\x04\x8B\x11\x8B\x42\x1C\xFF\xD0\x8B\x8E\x9C\x03\x00\x00\x8B\x10\x8B\x52\x04\x51"
-        },
-        { 0, }
+        }
     }
+};
+
+enum FIME_RESULT : DWORD
+{
+    NOT_FOUND,
+    SUCCESS,
+    NOT_SUPPORTED
 };
 
 enum RELEASE_RESULT : DWORD
@@ -84,7 +92,7 @@ enum RELEASE_RESULT : DWORD
 #define MESSAGEBOX_INFOMATION(MSG)  MessageBox(NULL, TEXT(MSG), PROJECT_NAME, MB_OK | MB_ICONINFORMATION)
 #define MESSAGEBOX_ASTERISK(MSG)    MessageBox(NULL, TEXT(MSG), PROJECT_NAME, MB_OK | MB_ICONASTERISK)
 
-RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, DWORD cbUrl);
+RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, size_t cbUrl);
 BOOL getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr, DWORD* modBaseSize);
 DWORD getFileSize(LPCWSTR path);
 
@@ -121,18 +129,21 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
         return 1;
     }
 
-    bool res = false;
+    FIME_RESULT res = NOT_FOUND;
 
     FIME_CLIENT* client;
-    const FIME_PATCH* patch;
+    int i;
 
     DWORD pid;
     HANDLE hProcess;
+    DWORD oldProtect;
 
     PBYTE modBaseAddr;
     DWORD modBaseSize;
 
     BYTE buff[64];
+
+    void* offset;
 
     if (Process32First(snapshot, &entry))
     {
@@ -141,11 +152,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
             client = nullptr;
 
 #if _WIN64
-            if (lstrcmp(entry.szExeFile, FFXIVX64.processName) == 0)
+            if (lstrcmpi(entry.szExeFile, FFXIVX64.processName) == 0)
                 client = &FFXIVX64;
             else
 #endif
-            if (lstrcmp(entry.szExeFile, FFXIVX32.processName) == 0)
+            if (lstrcmpi(entry.szExeFile, FFXIVX32.processName) == 0)
                 client = &FFXIVX32;
 
             if (client != nullptr)
@@ -173,26 +184,36 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
                     if (getFileSize(filePath) != client->exeSize)
                         continue;
 
-                    patch = client->patches;
-                    do
+                    for (i = 0; i < client->patchCount; ++i)
                     {
-                        ReadProcessMemory(hProcess, modBaseAddr + patch->Offset, buff, strlen(patch->chkBytes), NULL);
-                        if (memcmp(buff, patch->chkBytes, strlen(patch->chkBytes)) == 0)
+                        offset = modBaseAddr + client->patches[i].Offset;
+                        ReadProcessMemory(hProcess, offset, buff, strlen(client->patches[i].oldBytes), NULL);
+                        if (memcmp(buff, client->patches[i].newBytes, strlen(client->patches[i].newBytes)) == 0)
                         {
-                            res |= true;
+                            res = SUCCESS;
                         }
                         else
                         {
-                            if (memcmp(buff, patch->oldBytes, strlen(patch->oldBytes)) == 0)
+                            if (memcmp(buff, client->patches[i].oldBytes, strlen(client->patches[i].oldBytes)) == 0)
                             {
-                                WriteProcessMemory(hProcess, modBaseAddr + patch->Offset, patch->newBytes, strlen(patch->newBytes), NULL);
-                                res |= true;
+                                if (VirtualProtectEx(hProcess, offset, client->patches[i].newLength, PAGE_EXECUTE_READWRITE, &oldProtect) == FALSE)
+                                {
+                                    MESSAGEBOX_ASTERISK("관리자 권한으로 실행시켜주세요!");
+                                    return 1;
+                                }
+
+                                WriteProcessMemory(hProcess, offset, client->patches[i].newBytes, client->patches[i].newLength, NULL);
+                                VirtualProtectEx(hProcess, offset, client->patches[i].newLength, oldProtect, &oldProtect);
+
+                                res = SUCCESS;
+                            }
+                            else
+                            {
+                                if (res == NOT_FOUND)
+                                    res = NOT_SUPPORTED;
                             }
                         }
-
-                        patch++;
                     }
-                    while (patch->Offset != 0);
 
                     CloseHandle(hProcess);
                 }
@@ -202,15 +223,17 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 
     CloseHandle(snapshot);
 
-    if (res)
-        MESSAGEBOX_INFOMATION("성공적으로 적용했습니다!");
-    else
-        MESSAGEBOX_INFOMATION("파이널 판타지 14 가 실행중이 아니거나, 지원되지 않는 버전입니다.\n\n지원되는 클라이언트 버전 : " FFXIV_VERSION);
+    switch (res)
+    {
+        case SUCCESS:        MESSAGEBOX_INFOMATION("성공적으로 적용했습니다!"); break;
+        case NOT_FOUND:        MESSAGEBOX_ASTERISK("파이널 판타지 14 가 실행중이 아닙니다."); break;
+        case NOT_SUPPORTED: MESSAGEBOX_ASTERISK("지원되지 않는 파이널 판타지 14 버전입니다.\n\n지원되는 클라이언트 버전 : " FFXIV_VERSION); break;
+    }
 
     return 0;
 }
 
-RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, DWORD cbUrl)
+RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, size_t cbUrl)
 {
 #define HOST    L"api.github.com"
 #define PATH    L"/repos/RyuaNerin/FIME/releases/latest"
@@ -228,6 +251,8 @@ RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, DWORD cbUrl)
 
     hSession = WinHttpOpen(PROJECT_NAME, WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (hSession)
+        bResults = WinHttpSetTimeouts(hSession, 2000, 2000, 2000, 2000);
+    if (bResults)
         hConnect = WinHttpConnect(hSession, HOST, INTERNET_DEFAULT_HTTPS_PORT, 0);
     if (hConnect)
         hRequest = WinHttpOpenRequest(hConnect, L"GET", PATH, NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
@@ -271,8 +296,7 @@ RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, DWORD cbUrl)
         result = PARSING_ERROR;
 
         int length = MultiByteToWideChar(CP_UTF8, 0, response.c_str(), (int)response.size(), NULL, 0);
-        std::unique_ptr<wchar_t[]> wbuf(new wchar_t[length + 1]);
-        memset(wbuf.get(), 0, length * sizeof(wchar_t));
+        std::unique_ptr<wchar_t[]> wbuf(new wchar_t[length + 1]());
         MultiByteToWideChar(CP_UTF8, 0, response.c_str(), (int)response.size(), wbuf.get(), length);
 
         std::wstring str(wbuf.get());
@@ -293,7 +317,7 @@ RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, DWORD cbUrl)
                     result = NEW_RELEASE;
 
                     std::wstring url = match[1];
-                    url.copy(lpUrl, min(url.length(), cbUrl), 0);
+                    memcpy(lpUrl, url.c_str(), min(url.length(), cbUrl));
                 }
             }
         }
@@ -332,7 +356,7 @@ BOOL getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr, DWORD* 
         {
             do
             {
-                if (lstrcmp(snapEntry.szModule, lpModuleName) == 0)
+                if (lstrcmpi(snapEntry.szModule, lpModuleName) == 0)
                 {
                     *modBaseAddr = snapEntry.modBaseAddr;
                     *modBaseSize = snapEntry.modBaseSize;

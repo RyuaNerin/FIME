@@ -2,7 +2,7 @@
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
     <assemblyIdentity version="1.0.0.0" processorArchitecture="*"
         name="RyuaNerin.FIME" type="win32"/>
-    <description>Your application description here.</description>
+    <description>FIX FFXIV IME.</description>
     <dependency>
         <dependentAssembly>
             <assemblyIdentity name="Microsoft.Windows.Common-Controls"
