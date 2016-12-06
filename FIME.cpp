@@ -10,7 +10,7 @@
 
 #define PROJECT_NAME            L"FIME v" TEXT(VERSION_STR)
 
-#define FFXIV_VERSION           L"v3.15, 2016.10.04.0000.0000(2167201, ex1:2016.09.21.0000.0000)"
+#define FFXIV_VERSION           L"v3.2, 2016.11.19.0000.0000(2245781, ex1:2016.11.19.0000.0000)"
 
 typedef struct _FIME_PATCH
 {
@@ -21,29 +21,29 @@ typedef struct _FIME_PATCH
 } FIME_PATCH;
 typedef struct _FIME_CLIENT
 {
-    const wchar_t*      processName;
-    const size_t        exeSize;
-    const size_t        moduleSize;
-    const int           patchCount;
-    const FIME_PATCH*   patches;
+    const wchar_t*    processName;
+    const size_t      exeSize;
+    const size_t      moduleSize;
+    const int         patchCount;
+    const FIME_PATCH* patches;
 } FIME_CLIENT;
 
 #if _WIN64
-FIME_CLIENT FFXIVX64 = 
+const FIME_CLIENT FFXIVX64 = 
 {
     L"ffxiv_dx11.exe",
-    23937264,
-    0x01A40000,
+    24430672,
+    0x1AB6000,
     2,
     new FIME_PATCH[2] {
         {
-            0x0026AEA1,
+            0x271631,
             1,
             "\xEB\x1B\x48\x8B\x86\x90\x31\x00\x00\x0F\xBE\xD1\x48\x8D\x8E\x90\x31\x00\x00\xFF\x50\x58\xC6\x86",
             "\x74\x1B\x48\x8B\x86\x90\x31\x00\x00\x0F\xBE\xD1\x48\x8D\x8E\x90\x31\x00\x00\xFF\x50\x58\xC6\x86"
         },
         {
-            0x008C8B32,
+            0x8D2A22,
             1,
             "\xEB\x24\x48\x8B\x4E\x08\x48\x8B\x01\xFF\x50\x38\x8B\x96\x80\x04\x00\x00\x4C\x8B\x00\x48\x8B\xC8",
             "\x74\x24\x48\x8B\x4E\x08\x48\x8B\x01\xFF\x50\x38\x8B\x96\x80\x04\x00\x00\x4C\x8B\x00\x48\x8B\xC8"
@@ -52,21 +52,21 @@ FIME_CLIENT FFXIVX64 =
 };
 #endif
 
-FIME_CLIENT FFXIVX32 =
+const FIME_CLIENT FFXIVX32 =
 {
     L"ffxiv.exe",
-    16943856,
-    0x012F5000,
+    17311824,
+    0x134C000,
     2,
     new FIME_PATCH[2] {
         {
-            0x001EE0B3,
+            0x1F4603,
             1,
             "\xEB\x1C\x8B\x93\x5C\x22\x00\x00\x8B\x52\x2C\x0F\xBE\xC0\x50\x8D\x8B\x5C\x22\x00\x00\xFF\xD2\xC6",
             "\x74\x1C\x8B\x93\x5C\x22\x00\x00\x8B\x52\x2C\x0F\xBE\xC0\x50\x8D\x8B\x5C\x22\x00\x00\xFF\xD2\xC6"
         },
         {
-            0x00710FC3,
+            0x71ABD3,
             1,
             "\xEB\x20\x8B\x4E\x04\x8B\x11\x8B\x42\x1C\xFF\xD0\x8B\x8E\x9C\x03\x00\x00\x8B\x10\x8B\x52\x04\x51",
             "\x74\x20\x8B\x4E\x04\x8B\x11\x8B\x42\x1C\xFF\xD0\x8B\x8E\x9C\x03\x00\x00\x8B\x10\x8B\x52\x04\x51"
@@ -100,6 +100,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 {
     WCHAR filePath[4096];
 
+#ifndef _DEBUG
     switch (checkLatestRelease(filePath, sizeof(filePath)))
     {
         case LATEST:
@@ -118,6 +119,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
             MESSAGEBOX_ASTERISK("최신 릴리즈 정보를 가져오는 중 오류가 발생하였습니다.");
             return -1;
     }
+#endif
 
     PROCESSENTRY32 entry = { 0, };
     entry.dwSize = sizeof(PROCESSENTRY32);
@@ -131,7 +133,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 
     FIME_RESULT res = NOT_FOUND;
 
-    FIME_CLIENT* client;
+    const FIME_CLIENT* client;
     int i;
 
     DWORD pid;
@@ -225,8 +227,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 
     switch (res)
     {
-        case SUCCESS:        MESSAGEBOX_INFOMATION("성공적으로 적용했습니다!"); break;
-        case NOT_FOUND:        MESSAGEBOX_ASTERISK("파이널 판타지 14 가 실행중이 아닙니다."); break;
+        case SUCCESS:       MESSAGEBOX_INFOMATION("성공적으로 적용했습니다!"); break;
+        case NOT_FOUND:     MESSAGEBOX_ASTERISK("파이널 판타지 14 가 실행중이 아닙니다."); break;
         case NOT_SUPPORTED: MESSAGEBOX_ASTERISK("지원되지 않는 파이널 판타지 14 버전입니다.\n\n지원되는 클라이언트 버전 : " FFXIV_VERSION); break;
     }
 
@@ -317,7 +319,7 @@ RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, size_t cbUrl)
                     result = NEW_RELEASE;
 
                     std::wstring url = match[1];
-                    memcpy(lpUrl, url.c_str(), min(url.length(), cbUrl));
+                    url.copy(lpUrl, cbUrl);
                 }
             }
         }
