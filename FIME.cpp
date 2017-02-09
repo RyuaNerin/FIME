@@ -6,73 +6,79 @@
 #include <Psapi.h>
 #include <winhttp.h>
 
+#include <json\json.h>
+
 #include "resource.h"
 
 #define PROJECT_NAME            L"FIME v" TEXT(VERSION_STR)
 
-#define FFXIV_VERSION           L"v3.2, 2016.11.19.0000.0000(2245781, ex1:2016.11.19.0000.0000)"
+#define DEFAULT_PATCH_JSON \
+"{" \
+"  \"version\": \"v3.21, 2016.12.26.0000.0000(2245781, ex1:2016.12.26.0000.0000)\"," \
+"  \"x64\": {" \
+"    \"exeSize\": 24430672," \
+"    \"moduleSize\": 28008448," \
+"    \"patches\": [" \
+"      {" \
+"        \"offset\": 2561585," \
+"        \"newLength\": 1," \
+"        \"new\": \"EB1B488B86903100000FBED1488D8E90310000FF5058C686\"," \
+"        \"old\": \"741B488B86903100000FBED1488D8E90310000FF5058C686\"" \
+"      }," \
+"      {" \
+"        \"offset\": 9251362," \
+"        \"newLength\": 1," \
+"        \"new\": \"EB24488B4E08488B01FF50388B96800400004C8B00488BC8\"," \
+"        \"old\": \"7424488B4E08488B01FF50388B96800400004C8B00488BC8\"" \
+"      }" \
+"    ]" \
+"  }," \
+"  \"x32\": {" \
+"    \"exeSize\": 17311824," \
+"    \"moduleSize\": 20234240," \
+"    \"patches\": [" \
+"      {" \
+"        \"offset\": 2049539," \
+"        \"newLength\": 1," \
+"        \"new\": \"EB1C8B935C2200008B522C0FBEC0508D8B5C220000FFD2C6\"," \
+"        \"old\": \"741C8B935C2200008B522C0FBEC0508D8B5C220000FFD2C6\"" \
+"      }," \
+"      {" \
+"        \"offset\": 7449555," \
+"        \"newLength\": 1," \
+"        \"new\": \"EB208B4E048B118B421CFFD08B8E9C0300008B108B520451\"," \
+"        \"old\": \"74208B4E048B118B421CFFD08B8E9C0300008B108B520451\"" \
+"      }" \
+"    ]" \
+"  }" \
+"}"
 
-typedef struct _FIME_PATCH
+typedef struct _FIME_MEMORY
 {
-    const size_t Offset;
-    const size_t newLength;
-    const char*  newBytes;
-    const char*  oldBytes;
-} FIME_PATCH;
+    size_t  offset;
+    size_t  newLength;
+    char*   newArr;
+    size_t  newArrLength;
+    char*   oldArr;
+    size_t  oldArrLength;
+} FIME_MEMORY;
 typedef struct _FIME_CLIENT
 {
-    const wchar_t*    processName;
-    const size_t      exeSize;
-    const size_t      moduleSize;
-    const int         patchCount;
-    const FIME_PATCH* patches;
+    size_t  exeSize;
+    size_t  moduleSize;
+    size_t  patchesCount;
+    FIME_MEMORY* patches;
 } FIME_CLIENT;
-
+typedef struct _FIME_PATCH
+{
+    std::wstring version;
+    FIME_CLIENT x32;
 #if _WIN64
-const FIME_CLIENT FFXIVX64 = 
-{
-    L"ffxiv_dx11.exe",
-    24430672,
-    0x1AB6000,
-    2,
-    new FIME_PATCH[2] {
-        {
-            0x271631,
-            1,
-            "\xEB\x1B\x48\x8B\x86\x90\x31\x00\x00\x0F\xBE\xD1\x48\x8D\x8E\x90\x31\x00\x00\xFF\x50\x58\xC6\x86",
-            "\x74\x1B\x48\x8B\x86\x90\x31\x00\x00\x0F\xBE\xD1\x48\x8D\x8E\x90\x31\x00\x00\xFF\x50\x58\xC6\x86"
-        },
-        {
-            0x8D2A22,
-            1,
-            "\xEB\x24\x48\x8B\x4E\x08\x48\x8B\x01\xFF\x50\x38\x8B\x96\x80\x04\x00\x00\x4C\x8B\x00\x48\x8B\xC8",
-            "\x74\x24\x48\x8B\x4E\x08\x48\x8B\x01\xFF\x50\x38\x8B\x96\x80\x04\x00\x00\x4C\x8B\x00\x48\x8B\xC8"
-        }
-    }
-};
+    FIME_CLIENT x64;
 #endif
+} FIME_PATCH;
 
-const FIME_CLIENT FFXIVX32 =
-{
-    L"ffxiv.exe",
-    17311824,
-    0x134C000,
-    2,
-    new FIME_PATCH[2] {
-        {
-            0x1F4603,
-            1,
-            "\xEB\x1C\x8B\x93\x5C\x22\x00\x00\x8B\x52\x2C\x0F\xBE\xC0\x50\x8D\x8B\x5C\x22\x00\x00\xFF\xD2\xC6",
-            "\x74\x1C\x8B\x93\x5C\x22\x00\x00\x8B\x52\x2C\x0F\xBE\xC0\x50\x8D\x8B\x5C\x22\x00\x00\xFF\xD2\xC6"
-        },
-        {
-            0x71ABD3,
-            1,
-            "\xEB\x20\x8B\x4E\x04\x8B\x11\x8B\x42\x1C\xFF\xD0\x8B\x8E\x9C\x03\x00\x00\x8B\x10\x8B\x52\x04\x51",
-            "\x74\x20\x8B\x4E\x04\x8B\x11\x8B\x42\x1C\xFF\xD0\x8B\x8E\x9C\x03\x00\x00\x8B\x10\x8B\x52\x04\x51"
-        }
-    }
-};
+FIME_PATCH PATCH;
 
 enum FIME_RESULT : DWORD
 {
@@ -89,14 +95,70 @@ enum RELEASE_RESULT : DWORD
     PARSING_ERROR
 };
 
-#define MESSAGEBOX_INFOMATION(MSG)  MessageBox(NULL, TEXT(MSG), PROJECT_NAME, MB_OK | MB_ICONINFORMATION)
-#define MESSAGEBOX_ASTERISK(MSG)    MessageBox(NULL, TEXT(MSG), PROJECT_NAME, MB_OK | MB_ICONASTERISK)
+#ifndef _DEBUG
+#define MESSAGEBOX_INFOMATION(MSG)  MessageBox(NULL, MSG, PROJECT_NAME, MB_OK | MB_ICONINFORMATION)
+#define MESSAGEBOX_ASTERISK(MSG)    MessageBox(NULL, MSG, PROJECT_NAME, MB_OK | MB_ICONASTERISK)
+#define DEBUGLOG
+#else
+#include <iostream>
+#define MESSAGEBOX_INFOMATION(MSG)  { std::wcout << MSG << std::endl; }
+#define MESSAGEBOX_ASTERISK(MSG)    { std::wcout << MSG << std::endl; }
+void DEBUGLOG(const std::string fmt_str, ...)
+{
+    int final_n;
+    int n = ((int)fmt_str.size()) * 2;
+    std::unique_ptr<char[]> formatted;
+    va_list va;
+    while (1)
+    {
+        formatted.reset(new char[n]);
+        std::strcpy(&formatted[0], fmt_str.c_str());
+        va_start(va, fmt_str);
+        final_n = vsnprintf_s(&formatted[0], n, n - 1, fmt_str.c_str(), va);
+        va_end(va);
+        if (final_n < 0 || final_n >= n)
+            n += std::abs(final_n - n + 1);
+        else
+            break;
+    }
+
+    std::cout << std::string(formatted.get()) << std::endl;
+}
+void DEBUGLOG(const std::wstring fmt_str, ...)
+{
+    int final_n;
+    int n = ((int)fmt_str.size()) * 2;
+    std::unique_ptr<wchar_t[]> formatted;
+    va_list va;
+    while (1)
+    {
+        formatted.reset(new wchar_t[n]);
+        std::wcsstr(&formatted[0], fmt_str.c_str());
+        va_start(va, fmt_str);
+        final_n = _vsnwprintf_s(&formatted[0], n, n - 1, fmt_str.c_str(), va);
+        va_end(va);
+        if (final_n < 0 || final_n >= n)
+            n += std::abs(final_n - n + 1);
+        else
+            break;
+    }
+
+    std::wcout << std::wstring(formatted.get()) << std::endl;
+}
+#endif
 
 RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, size_t cbUrl);
 BOOL getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr, DWORD* modBaseSize);
 DWORD getFileSize(LPCWSTR path);
+bool SetPrivilege();
+void getPatches(FIME_CLIENT *client, Json::Value &arc);
+void getMemoryPatches();
 
+#ifdef _DEBUG
+int wmain(int argc, wchar_t **argv, wchar_t **env)
+#else
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int cmdShow)
+#endif
 {
     WCHAR filePath[4096];
 
@@ -107,7 +169,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
             break;
 
         case NEW_RELEASE:
-            MESSAGEBOX_INFOMATION("최신 버전이 릴리즈 되었습니다!");
+            MESSAGEBOX_INFOMATION(L"최신 버전이 릴리즈 되었습니다!");
             ShellExecute(NULL, NULL, filePath, NULL, NULL, SW_SHOWNORMAL);
             return 1;
 
@@ -116,25 +178,34 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
                 return -1;
 
         case PARSING_ERROR:
-            MESSAGEBOX_ASTERISK("최신 릴리즈 정보를 가져오는 중 오류가 발생하였습니다.");
+            MESSAGEBOX_ASTERISK(L"최신 릴리즈 정보를 가져오는 중 오류가 발생하였습니다.");
             return -1;
     }
 #endif
 
+    DEBUGLOG("ThreadPrivilege");
+    if (!SetPrivilege())
+    {
+        MESSAGEBOX_ASTERISK(L"관리자 권한으로 실행시켜주세요!");
+        return 1;
+    }
+
     PROCESSENTRY32 entry = { 0, };
     entry.dwSize = sizeof(PROCESSENTRY32);
 
+    DEBUGLOG("CreateToolhelp32Snapshot");
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snapshot == INVALID_HANDLE_VALUE)
     {
-        MESSAGEBOX_ASTERISK("관리자 권한으로 실행시켜주세요!");
+        MESSAGEBOX_ASTERISK(L"관리자 권한으로 실행시켜주세요!");
         return 1;
     }
+
+    getMemoryPatches();
 
     FIME_RESULT res = NOT_FOUND;
 
     const FIME_CLIENT* client;
-    int i;
 
     DWORD pid;
     HANDLE hProcess;
@@ -143,29 +214,34 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
     PBYTE modBaseAddr;
     DWORD modBaseSize;
 
-    BYTE buff[64];
+    BYTE buff[256];
 
     void* offset;
+    size_t i;
 
+    DEBUGLOG("Process32First");
     if (Process32First(snapshot, &entry))
     {
-        while (Process32Next(snapshot, &entry))
+        do
         {
             client = nullptr;
 
+            DEBUGLOG("ProcessName : [%4X] %S", entry.th32ProcessID, entry.szExeFile);
 #if _WIN64
-            if (lstrcmpi(entry.szExeFile, FFXIVX64.processName) == 0)
-                client = &FFXIVX64;
+            if (lstrcmpi(entry.szExeFile, L"ffxiv_dx11.exe") == 0 ||
+                lstrcmpi(entry.szExeFile, L"ffxiv_dx11_multi.exe") == 0)
+                client = &PATCH.x64;
             else
 #endif
-            if (lstrcmpi(entry.szExeFile, FFXIVX32.processName) == 0)
-                client = &FFXIVX32;
+            if (lstrcmpi(entry.szExeFile, L"ffxiv.exe") == 0 ||
+                lstrcmpi(entry.szExeFile, L"ffxiv_multi.exe") == 0)
+                client = &PATCH.x32;
 
             if (client != nullptr)
             {
                 pid = entry.th32ProcessID;
 
-                if (getFFXIVModule(pid, client->processName, &modBaseAddr, &modBaseSize))
+                if (getFFXIVModule(pid, entry.szExeFile, &modBaseAddr, &modBaseSize))
                 {
                     if (modBaseSize != client->moduleSize)
                         continue;
@@ -173,38 +249,38 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
                     hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION | PROCESS_VM_READ | PROCESS_VM_WRITE, FALSE, pid);
                     if (hProcess == NULL)
                     {
-                        MESSAGEBOX_ASTERISK("관리자 권한으로 실행시켜주세요!");
+                        MESSAGEBOX_ASTERISK(L"관리자 권한으로 실행시켜주세요!");
                         return 1;
                     }
 
                     if (GetModuleFileNameEx(hProcess, NULL, filePath, sizeof(filePath) / sizeof(WCHAR)) == 0)
                     {
-                        MESSAGEBOX_ASTERISK("관리자 권한으로 실행시켜주세요!");
+                        MESSAGEBOX_ASTERISK(L"관리자 권한으로 실행시켜주세요!");
                         return 1;
                     }
 
                     if (getFileSize(filePath) != client->exeSize)
                         continue;
 
-                    for (i = 0; i < client->patchCount; ++i)
+                    for (i = 0; i < client->patchesCount; ++i)
                     {
-                        offset = modBaseAddr + client->patches[i].Offset;
-                        ReadProcessMemory(hProcess, offset, buff, strlen(client->patches[i].oldBytes), NULL);
-                        if (memcmp(buff, client->patches[i].newBytes, strlen(client->patches[i].newBytes)) == 0)
+                        offset = modBaseAddr + client->patches[i].offset;
+                        ReadProcessMemory(hProcess, offset, buff, client->patches[i].newArrLength, NULL);
+                        if (std::memcmp(client->patches[i].newArr, buff, client->patches[i].newArrLength) == 0)
                         {
                             res = SUCCESS;
                         }
                         else
                         {
-                            if (memcmp(buff, client->patches[i].oldBytes, strlen(client->patches[i].oldBytes)) == 0)
+                            if (std::memcmp(client->patches[i].oldArr, buff, client->patches[i].oldArrLength) == 0)
                             {
                                 if (VirtualProtectEx(hProcess, offset, client->patches[i].newLength, PAGE_EXECUTE_READWRITE, &oldProtect) == FALSE)
                                 {
-                                    MESSAGEBOX_ASTERISK("관리자 권한으로 실행시켜주세요!");
+                                    MESSAGEBOX_ASTERISK(L"관리자 권한으로 실행시켜주세요!");
                                     return 1;
                                 }
 
-                                WriteProcessMemory(hProcess, offset, client->patches[i].newBytes, client->patches[i].newLength, NULL);
+                                WriteProcessMemory(hProcess, offset, client->patches[i].newArr, client->patches[i].newLength, NULL);
                                 VirtualProtectEx(hProcess, offset, client->patches[i].newLength, oldProtect, &oldProtect);
 
                                 res = SUCCESS;
@@ -220,25 +296,62 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
                     CloseHandle(hProcess);
                 }
             }
-        }
+        } while (Process32Next(snapshot, &entry));
     }
 
     CloseHandle(snapshot);
 
     switch (res)
     {
-        case SUCCESS:       MESSAGEBOX_INFOMATION("성공적으로 적용했습니다!"); break;
-        case NOT_FOUND:     MESSAGEBOX_ASTERISK("파이널 판타지 14 가 실행중이 아닙니다."); break;
-        case NOT_SUPPORTED: MESSAGEBOX_ASTERISK("지원되지 않는 파이널 판타지 14 버전입니다.\n\n지원되는 클라이언트 버전 : " FFXIV_VERSION); break;
+        case SUCCESS:       MESSAGEBOX_INFOMATION(L"성공적으로 적용했습니다!"); break;
+        case NOT_FOUND:     MESSAGEBOX_ASTERISK(L"파이널 판타지 14 가 실행중이 아닙니다."); break;
+        case NOT_SUPPORTED:
+        {
+            std::wstring message = L"지원되지 않는 파이널 판타지 14 버전입니다.\n\n지원되는 클라이언트 버전 : " + PATCH.version;
+            MESSAGEBOX_ASTERISK(message.c_str());
+            break;
+        }
     }
+    
+#ifdef _DEBUG
+    std::string temp;
+    std::cin >> temp;
+#endif
 
     return 0;
 }
 
-RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, size_t cbUrl)
+bool SetPrivilege()
 {
-#define HOST    L"api.github.com"
-#define PATH    L"/repos/RyuaNerin/FIME/releases/latest"
+    bool res = false;
+
+    HANDLE hToken;
+
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, &hToken) == TRUE)
+    {
+        LUID luid;
+        if (LookupPrivilegeValueW(NULL, SE_DEBUG_NAME, &luid) == TRUE)
+        {
+            TOKEN_PRIVILEGES priviliges = { 0, };
+
+            priviliges.PrivilegeCount = 1;
+            priviliges.Privileges[0].Luid = luid;
+            priviliges.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+            if (AdjustTokenPrivileges(hToken, FALSE, &priviliges, sizeof(priviliges), NULL, NULL))
+                res = true;
+        }
+
+        CloseHandle(hToken);
+    }
+
+
+    return res;
+}
+
+bool getHttp(std::wstring host, std::wstring path, std::string &body)
+{
+    bool res = false;
 
     RELEASE_RESULT result = NETWORK_ERROR;
 
@@ -247,21 +360,28 @@ RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, size_t cbUrl)
     HINTERNET hConnect = NULL;
     HINTERNET hRequest = NULL;
 
-    std::string response;
+    DWORD dwStatusCode;
     DWORD dwSize;
     DWORD dwRead;
 
     hSession = WinHttpOpen(PROJECT_NAME, WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (hSession)
-        bResults = WinHttpSetTimeouts(hSession, 2000, 2000, 2000, 2000);
+        bResults = WinHttpSetTimeouts(hSession, 5000, 5000, 5000, 5000);
     if (bResults)
-        hConnect = WinHttpConnect(hSession, HOST, INTERNET_DEFAULT_HTTPS_PORT, 0);
+        hConnect = WinHttpConnect(hSession, host.c_str(), INTERNET_DEFAULT_HTTPS_PORT, 0);
     if (hConnect)
-        hRequest = WinHttpOpenRequest(hConnect, L"GET", PATH, NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+        hRequest = WinHttpOpenRequest(hConnect, L"GET", path.c_str(), NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
     if (hRequest)
         bResults = WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, NULL);
     if (bResults)
         bResults = WinHttpReceiveResponse(hRequest, NULL);
+    if (bResults)
+    {
+        dwSize = sizeof(dwStatusCode);
+        bResults = WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &dwStatusCode, &dwSize, WINHTTP_NO_HEADER_INDEX);
+    }
+    if (bResults)
+        bResults = dwStatusCode == 200;
     if (bResults)
     {
         size_t dwOffset;
@@ -274,17 +394,17 @@ RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, size_t cbUrl)
 
             while (dwSize > 0)
             {
-                dwOffset = response.size();
-                response.resize(dwOffset + dwSize);
+                dwOffset = body.size();
+                body.resize(dwOffset + dwSize);
 
-                bResults = WinHttpReadData(hRequest, &response[dwOffset], dwSize, &dwRead);
+                bResults = WinHttpReadData(hRequest, &body[dwOffset], dwSize, &dwRead);
                 if (!bResults)
                 {
                     dwRead = 0;
                     break;
                 }
 
-                response.resize(dwOffset + dwRead);
+                body.resize(dwOffset + dwRead);
 
                 if (dwRead == 0)
                     break;
@@ -292,44 +412,133 @@ RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, size_t cbUrl)
                 dwSize -= dwRead;
             }
         } while (true);
+
+        res = true;
     }
-    if (bResults)
+    if (hRequest) WinHttpCloseHandle(hRequest);
+    if (hConnect) WinHttpCloseHandle(hConnect);
+    if (hSession) WinHttpCloseHandle(hSession);
+
+    return res;
+}
+
+RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, size_t cbUrl)
+{
+    RELEASE_RESULT result = NETWORK_ERROR;
+
+    std::string body;
+    if (getHttp(L"api.github.com", L"/repos/RyuaNerin/FIME/releases/latest", body))
     {
         result = PARSING_ERROR;
 
-        int length = MultiByteToWideChar(CP_UTF8, 0, response.c_str(), (int)response.size(), NULL, 0);
-        std::unique_ptr<wchar_t[]> wbuf(new wchar_t[length + 1]());
-        MultiByteToWideChar(CP_UTF8, 0, response.c_str(), (int)response.size(), wbuf.get(), length);
+        Json::Reader jsonReader;
+        Json::Value json;
 
-        std::wstring str(wbuf.get());
-        std::wsmatch match;
-
-        std::wregex regex_tag(L"\"tag_name\"[ \\t]*:[ \\t]*\"([^\"]+)\"");
-        if (std::regex_search(str, match, regex_tag))
+        if (jsonReader.parse(body, json))
         {
-            if (match[1].compare(TEXT(VERSION_STR)) == 0)
+            std::string tag_name = json["tag_name"].asString();
+            if (tag_name.compare(VERSION_STR) == 0)
             {
                 result = LATEST;
             }
             else
             {
-                std::wregex regex_url(L"\"html_url\"[ \\t]*:[ \\t]*\"([^\"]+)\"");
-                if (std::regex_search(str, match, regex_url))
-                {
-                    result = NEW_RELEASE;
+                std::string html_url = json["html_url"].asString();
 
-                    std::wstring url = match[1];
-                    url.copy(lpUrl, cbUrl);
+                int length = MultiByteToWideChar(CP_UTF8, 0, html_url.c_str(), (int)html_url.size(), NULL, 0);
+                if (length > 0)
+                {
+                    std::unique_ptr<wchar_t[]> wbuf(new wchar_t[length + 1]());
+                    MultiByteToWideChar(CP_UTF8, 0, html_url.c_str(), (int)html_url.size(), wbuf.get(), length);
+
+                    memcpy_s(lpUrl, cbUrl, &wbuf[0], length);
+                    result = NEW_RELEASE;
                 }
             }
         }
     }
 
-    if (hRequest) WinHttpCloseHandle(hRequest);
-    if (hConnect) WinHttpCloseHandle(hConnect);
-    if (hSession) WinHttpCloseHandle(hSession);
-
     return result;
+}
+
+void getPatches(Json::Value &arc);
+void getMemoryPatches()
+{
+    std::string body;
+    if (!getHttp(L"raw.githubusercontent.com", L"/RyuaNerin/FIME/master/patch.json", body))
+        body.append(DEFAULT_PATCH_JSON);
+    
+    Json::Reader jsonReader;
+    Json::Value json;
+    if (jsonReader.parse(body, json))
+    {
+        body.clear();
+        body.append(DEFAULT_PATCH_JSON);
+
+        jsonReader.parse(body, json);
+    }
+
+    std::string version = json["version"].asString();
+    PATCH.version.assign(version.begin(), version.end());
+
+    getPatches(&PATCH.x32, json["x32"]);
+
+#ifdef _WIN64
+    getPatches(&PATCH.x64, json["x64"]);
+#endif
+}
+
+void hexToString(Json::Value value, char** bytes, size_t *length);
+void getPatches(FIME_CLIENT *client, Json::Value &arc)
+{
+    Json::Value patches = arc["patches"];
+    Json::Value patch;
+
+    client->exeSize      = (size_t)arc["exeSize"].asInt64();
+    client->moduleSize   = (size_t)arc["moduleSize"].asInt64();
+    client->patchesCount = patches.size();
+    client->patches      = new FIME_MEMORY[client->patchesCount];
+
+    unsigned int index;
+    for (index = 0; index < patches.size(); ++index)
+    {
+        patch = patches[index];
+        client->patches[index].offset    = (size_t)patch["offset"].asInt64();
+        client->patches[index].newLength = (size_t)patch["newLength"].asInt64();
+
+        hexToString(patch["old"], &client->patches[index].oldArr, &client->patches[index].oldArrLength);
+        hexToString(patch["new"], &client->patches[index].newArr, &client->patches[index].newArrLength);
+    }
+}
+
+char hex2dec(const char *hex);
+void hexToString(Json::Value value, char** bytes, size_t *length)
+{
+    std::string  str = value.asCString();
+    const char* cstr = str.c_str();
+
+    *length = (size_t)(str.length() / 2);
+    char* arr = new char[*length];
+
+    for (SIZE_T i = 0; i < *length; ++i)
+        arr[i] = hex2dec(cstr + i * 2);
+
+    *bytes = arr;
+}
+
+char hex2dec(const char *hex)
+{
+    char val = 0;
+
+         if (hex[0] >= '0' && hex[0] <= '9') val = (hex[0] - '0') << 4;
+    else if (hex[0] >= 'a' && hex[0] <= 'f') val = (hex[0] - 'a' + 10) << 4;
+    else if (hex[0] >= 'A' && hex[0] <= 'F') val = (hex[0] - 'A' + 10) << 4;
+    
+         if (hex[1] >= '0' && hex[1] <= '9') val |= hex[1] - '0';
+    else if (hex[1] >= 'a' && hex[1] <= 'f') val |= hex[1] - 'a' + 10;
+    else if (hex[1] >= 'A' && hex[1] <= 'F') val |= hex[1] - 'A' + 10;
+
+    return val;
 }
 
 DWORD getFileSize(LPCWSTR path)

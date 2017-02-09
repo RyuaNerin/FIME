@@ -3,6 +3,13 @@
     <assemblyIdentity version="1.0.0.0" processorArchitecture="*"
         name="RyuaNerin.FIME" type="win32"/>
     <description>FIX FFXIV IME.</description>
+    <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
+        <security>
+            <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
+                <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
+            </requestedPrivileges>
+        </security>
+    </trustInfo>
     <dependency>
         <dependentAssembly>
             <assemblyIdentity name="Microsoft.Windows.Common-Controls"
