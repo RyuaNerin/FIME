@@ -5,6 +5,7 @@
 #include <tlhelp32.h>
 #include <Psapi.h>
 #include <winhttp.h>
+#include <codecvt>
 
 #include <json\json.h>
 
@@ -14,67 +15,55 @@
 
 #define DEFAULT_PATCH_JSON \
 "{" \
-"  \"version\": \"v3.21, 2016.12.26.0000.0000(2245781, ex1:2016.12.26.0000.0000)\"," \
-"  \"x64\": {" \
-"    \"exeSize\": 24430672," \
-"    \"moduleSize\": 28008448," \
-"    \"patches\": [" \
-"      {" \
-"        \"offset\": 2561585," \
-"        \"newLength\": 1," \
-"        \"new\": \"EB1B488B86903100000FBED1488D8E90310000FF5058C686\"," \
-"        \"old\": \"741B488B86903100000FBED1488D8E90310000FF5058C686\"" \
-"      }," \
-"      {" \
-"        \"offset\": 9251362," \
-"        \"newLength\": 1," \
-"        \"new\": \"EB24488B4E08488B01FF50388B96800400004C8B00488BC8\"," \
-"        \"old\": \"7424488B4E08488B01FF50388B96800400004C8B00488BC8\"" \
-"      }" \
-"    ]" \
-"  }," \
-"  \"x32\": {" \
-"    \"exeSize\": 17311824," \
-"    \"moduleSize\": 20234240," \
-"    \"patches\": [" \
-"      {" \
-"        \"offset\": 2049539," \
-"        \"newLength\": 1," \
-"        \"new\": \"EB1C8B935C2200008B522C0FBEC0508D8B5C220000FFD2C6\"," \
-"        \"old\": \"741C8B935C2200008B522C0FBEC0508D8B5C220000FFD2C6\"" \
-"      }," \
-"      {" \
-"        \"offset\": 7449555," \
-"        \"newLength\": 1," \
-"        \"new\": \"EB208B4E048B118B421CFFD08B8E9C0300008B108B520451\"," \
-"        \"old\": \"74208B4E048B118B421CFFD08B8E9C0300008B108B520451\"" \
-"      }" \
-"    ]" \
-"  }" \
-"}"
+"  \"version\": \"v3.3 (2017.02.24.0000.0000(2405653, ex1:2017.02.21.0000.0000)\"," \
+"  \"x64\": [" \
+"    {" \
+"      \"offset\": 2597921," \
+"      \"newLength\": 1," \
+"      \"newBytes\": \"EB1B488B86903100000FBED1488D8E90310000FF5058C686\"," \
+"      \"oldBytes\": \"741B488B86903100000FBED1488D8E90310000FF5058C686\"" \
+"    }," \
+"    {" \
+"      \"offset\": 9524946," \
+"      \"newLength\": 1," \
+"      \"newBytes\": \"EB24488B4E08488B01FF50388B96800400004C8B00488BC8\"," \
+"      \"oldBytes\": \"7424488B4E08488B01FF50388B96800400004C8B00488BC8\"" \
+"    }" \
+"  ]," \
+"  \"x32\": [" \
+"    {" \
+"      \"offset\": 2049539," \
+"      \"newLength\": 1," \
+"      \"newBytes\": \"EB1C8B935C2200008B522C0FBEC0508D8B5C220000FFD2C6\"," \
+"      \"oldBytes\": \"741C8B935C2200008B522C0FBEC0508D8B5C220000FFD2C6\"" \
+"    }," \
+"    {" \
+"      \"offset\": 7449555," \
+"      \"newLength\": 1," \
+"      \"newBytes\": \"EB208B4E048B118B421CFFD08B8E9C0300008B108B520451\"," \
+"      \"oldBytes\": \"74208B4E048B118B421CFFD08B8E9C0300008B108B520451\"" \
+"    }" \
+"  ]" \
+"}" \
+
 
 typedef struct _FIME_MEMORY
 {
     size_t  offset;
     size_t  newLength;
-    char*   newArr;
+    int8_t* newArr;
     size_t  newArrLength;
-    char*   oldArr;
+    int8_t* oldArr;
     size_t  oldArrLength;
 } FIME_MEMORY;
-typedef struct _FIME_CLIENT
-{
-    size_t  exeSize;
-    size_t  moduleSize;
-    size_t  patchesCount;
-    FIME_MEMORY* patches;
-} FIME_CLIENT;
 typedef struct _FIME_PATCH
 {
     std::wstring version;
-    FIME_CLIENT x32;
+    size_t       x32Count;
+    FIME_MEMORY* x32;
 #if _WIN64
-    FIME_CLIENT x64;
+    size_t       x64Count;
+    FIME_MEMORY* x64;
 #endif
 } FIME_PATCH;
 
@@ -148,10 +137,10 @@ void DEBUGLOG(const std::wstring fmt_str, ...)
 #endif
 
 RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, size_t cbUrl);
-BOOL getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr, DWORD* modBaseSize);
+BOOL getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr);
 DWORD getFileSize(LPCWSTR path);
 bool SetPrivilege();
-void getPatches(FIME_CLIENT *client, Json::Value &arc);
+void getPatches(FIME_MEMORY** memory, size_t* memoryCount, Json::Value &arc);
 void getMemoryPatches();
 
 #ifdef _DEBUG
@@ -160,17 +149,16 @@ int wmain(int argc, wchar_t **argv, wchar_t **env)
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int cmdShow)
 #endif
 {
-    WCHAR filePath[4096];
-
 #ifndef _DEBUG
-    switch (checkLatestRelease(filePath, sizeof(filePath)))
+    WCHAR wBuffer[4096];
+    switch (checkLatestRelease(wBuffer, sizeof(wBuffer)))
     {
         case LATEST:
             break;
 
         case NEW_RELEASE:
             MESSAGEBOX_INFOMATION(L"최신 버전이 릴리즈 되었습니다!");
-            ShellExecute(NULL, NULL, filePath, NULL, NULL, SW_SHOWNORMAL);
+            ShellExecute(NULL, NULL, wBuffer, NULL, NULL, SW_SHOWNORMAL);
             return 1;
 
         case NETWORK_ERROR:
@@ -205,16 +193,16 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 
     FIME_RESULT res = NOT_FOUND;
 
-    const FIME_CLIENT* client;
+    size_t       patchCount;
+    FIME_MEMORY* patch;
 
     DWORD pid;
     HANDLE hProcess;
     DWORD oldProtect;
 
     PBYTE modBaseAddr;
-    DWORD modBaseSize;
 
-    BYTE buff[256];
+    int8_t buff[256];
 
     void* offset;
     size_t i;
@@ -224,28 +212,31 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
     {
         do
         {
-            client = nullptr;
+            patch = nullptr;
 
             DEBUGLOG("ProcessName : [%4X] %S", entry.th32ProcessID, entry.szExeFile);
 #if _WIN64
             if (lstrcmpi(entry.szExeFile, L"ffxiv_dx11.exe") == 0 ||
                 lstrcmpi(entry.szExeFile, L"ffxiv_dx11_multi.exe") == 0)
-                client = &PATCH.x64;
+            {
+                patch = PATCH.x64;
+                patchCount = PATCH.x64Count;
+            }
             else
 #endif
             if (lstrcmpi(entry.szExeFile, L"ffxiv.exe") == 0 ||
                 lstrcmpi(entry.szExeFile, L"ffxiv_multi.exe") == 0)
-                client = &PATCH.x32;
+            {
+                patch = PATCH.x32;
+                patchCount = PATCH.x32Count;
+            }
 
-            if (client != nullptr)
+            if (patch != nullptr)
             {
                 pid = entry.th32ProcessID;
 
-                if (getFFXIVModule(pid, entry.szExeFile, &modBaseAddr, &modBaseSize))
+                if (getFFXIVModule(pid, entry.szExeFile, &modBaseAddr))
                 {
-                    if (modBaseSize != client->moduleSize)
-                        continue;
-
                     hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION | PROCESS_VM_READ | PROCESS_VM_WRITE, FALSE, pid);
                     if (hProcess == NULL)
                     {
@@ -253,35 +244,26 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
                         return 1;
                     }
 
-                    if (GetModuleFileNameEx(hProcess, NULL, filePath, sizeof(filePath) / sizeof(WCHAR)) == 0)
+                    for (i = 0; i < patchCount; ++i)
                     {
-                        MESSAGEBOX_ASTERISK(L"관리자 권한으로 실행시켜주세요!");
-                        return 1;
-                    }
-
-                    if (getFileSize(filePath) != client->exeSize)
-                        continue;
-
-                    for (i = 0; i < client->patchesCount; ++i)
-                    {
-                        offset = modBaseAddr + client->patches[i].offset;
-                        ReadProcessMemory(hProcess, offset, buff, client->patches[i].newArrLength, NULL);
-                        if (std::memcmp(client->patches[i].newArr, buff, client->patches[i].newArrLength) == 0)
+                        offset = modBaseAddr + patch[i].offset;
+                        ReadProcessMemory(hProcess, offset, buff, patch[i].newArrLength, NULL);
+                        if (std::memcmp(patch[i].newArr, buff, patch[i].newArrLength) == 0)
                         {
                             res = SUCCESS;
                         }
                         else
                         {
-                            if (std::memcmp(client->patches[i].oldArr, buff, client->patches[i].oldArrLength) == 0)
+                            if (std::memcmp(patch[i].oldArr, buff, patch[i].oldArrLength) == 0)
                             {
-                                if (VirtualProtectEx(hProcess, offset, client->patches[i].newLength, PAGE_EXECUTE_READWRITE, &oldProtect) == FALSE)
+                                if (VirtualProtectEx(hProcess, offset, patch[i].newLength, PAGE_EXECUTE_READWRITE, &oldProtect) == FALSE)
                                 {
                                     MESSAGEBOX_ASTERISK(L"관리자 권한으로 실행시켜주세요!");
                                     return 1;
                                 }
 
-                                WriteProcessMemory(hProcess, offset, client->patches[i].newArr, client->patches[i].newLength, NULL);
-                                VirtualProtectEx(hProcess, offset, client->patches[i].newLength, oldProtect, &oldProtect);
+                                WriteProcessMemory(hProcess, offset, patch[i].newArr, patch[i].newLength, NULL);
+                                VirtualProtectEx(hProcess, offset, patch[i].newLength, oldProtect, &oldProtect);
 
                                 res = SUCCESS;
                             }
@@ -461,16 +443,17 @@ RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, size_t cbUrl)
     return result;
 }
 
-void getPatches(Json::Value &arc);
 void getMemoryPatches()
 {
     std::string body;
+#ifdef DEBUG
     if (!getHttp(L"raw.githubusercontent.com", L"/RyuaNerin/FIME/master/patch.json", body))
+#endif
         body.append(DEFAULT_PATCH_JSON);
     
     Json::Reader jsonReader;
     Json::Value json;
-    if (jsonReader.parse(body, json))
+    if (!jsonReader.parse(body, json))
     {
         body.clear();
         body.append(DEFAULT_PATCH_JSON);
@@ -479,46 +462,45 @@ void getMemoryPatches()
     }
 
     std::string version = json["version"].asString();
-    PATCH.version.assign(version.begin(), version.end());
 
-    getPatches(&PATCH.x32, json["x32"]);
+    std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> c2wc;
+    PATCH.version = c2wc.from_bytes(version);
+    
+    getPatches(&PATCH.x32, &PATCH.x32Count, json["x32"]);
 
 #ifdef _WIN64
-    getPatches(&PATCH.x64, json["x64"]);
+    getPatches(&PATCH.x64, &PATCH.x64Count, json["x64"]);
 #endif
 }
 
-void hexToString(Json::Value value, char** bytes, size_t *length);
-void getPatches(FIME_CLIENT *client, Json::Value &arc)
+void hexToString(Json::Value value, int8_t** bytes, size_t *length);
+void getPatches(FIME_MEMORY** memory, size_t* memoryCount, Json::Value &patches)
 {
-    Json::Value patches = arc["patches"];
     Json::Value patch;
 
-    client->exeSize      = (size_t)arc["exeSize"].asInt64();
-    client->moduleSize   = (size_t)arc["moduleSize"].asInt64();
-    client->patchesCount = patches.size();
-    client->patches      = new FIME_MEMORY[client->patchesCount];
+    *memoryCount = patches.size();
+    *memory      = new FIME_MEMORY[*memoryCount];
 
     unsigned int index;
     for (index = 0; index < patches.size(); ++index)
     {
         patch = patches[index];
-        client->patches[index].offset    = (size_t)patch["offset"].asInt64();
-        client->patches[index].newLength = (size_t)patch["newLength"].asInt64();
+        (*memory)[index].offset    = (size_t)patch["offset"].asInt64();
+        (*memory)[index].newLength = (size_t)patch["newLength"].asInt64();
 
-        hexToString(patch["old"], &client->patches[index].oldArr, &client->patches[index].oldArrLength);
-        hexToString(patch["new"], &client->patches[index].newArr, &client->patches[index].newArrLength);
+        hexToString(patch["oldBytes"], &((*memory)[index].oldArr), &((*memory)[index].oldArrLength));
+        hexToString(patch["newBytes"], &((*memory)[index].newArr), &((*memory)[index].newArrLength));
     }
 }
 
-char hex2dec(const char *hex);
-void hexToString(Json::Value value, char** bytes, size_t *length)
+int8_t hex2dec(const char *hex);
+void hexToString(Json::Value value, int8_t** bytes, size_t *length)
 {
     std::string  str = value.asCString();
     const char* cstr = str.c_str();
 
     *length = (size_t)(str.length() / 2);
-    char* arr = new char[*length];
+    int8_t* arr = new int8_t[*length];
 
     for (SIZE_T i = 0; i < *length; ++i)
         arr[i] = hex2dec(cstr + i * 2);
@@ -526,9 +508,9 @@ void hexToString(Json::Value value, char** bytes, size_t *length)
     *bytes = arr;
 }
 
-char hex2dec(const char *hex)
+int8_t hex2dec(const char *hex)
 {
-    char val = 0;
+    int8_t val = 0;
 
          if (hex[0] >= '0' && hex[0] <= '9') val = (hex[0] - '0') << 4;
     else if (hex[0] >= 'a' && hex[0] <= 'f') val = (hex[0] - 'a' + 10) << 4;
@@ -553,7 +535,7 @@ DWORD getFileSize(LPCWSTR path)
     return size;
 }
 
-BOOL getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr, DWORD* modBaseSize)
+BOOL getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr)
 {
     BOOL res = FALSE;
 
@@ -570,7 +552,6 @@ BOOL getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr, DWORD* 
                 if (lstrcmpi(snapEntry.szModule, lpModuleName) == 0)
                 {
                     *modBaseAddr = snapEntry.modBaseAddr;
-                    *modBaseSize = snapEntry.modBaseSize;
                     res = TRUE;
                     break;
                 }

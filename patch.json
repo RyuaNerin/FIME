@@ -1,39 +1,31 @@
 {
-  "version": "v3.21, 2016.12.26.0000.0000(2245781, ex1:2016.12.26.0000.0000)",
-  "x64": {
-    "exeSize": 24430672,
-    "moduleSize": 28008448,
-    "patches": [
-      {
-        "offset": 2561585,
-        "newLength": 1,
-        "newBytes": "EB1B488B86903100000FBED1488D8E90310000FF5058C686",
-        "oldBytes": "741B488B86903100000FBED1488D8E90310000FF5058C686"
-      },
-      {
-        "offset": 9251362,
-        "newLength": 1,
-        "newBytes": "EB24488B4E08488B01FF50388B96800400004C8B00488BC8",
-        "oldBytes": "7424488B4E08488B01FF50388B96800400004C8B00488BC8"
-      }
-    ]
-  },
-  "x32": {
-    "exeSize": 17311824,
-    "moduleSize": 20234240,
-    "patches": [
-      {
-        "offset": 2049539,
-        "newLength": 1,
-        "newBytes": "EB1C8B935C2200008B522C0FBEC0508D8B5C220000FFD2C6",
-        "oldBytes": "741C8B935C2200008B522C0FBEC0508D8B5C220000FFD2C6"
-      },
-      {
-        "offset": 7449555,
-        "newLength": 1,
-        "newBytes": "EB208B4E048B118B421CFFD08B8E9C0300008B108B520451",
-        "oldBytes": "74208B4E048B118B421CFFD08B8E9C0300008B108B520451"
-      }
-    ]
-  }
+  "version": "v3.3 (2017.02.24.0000.0000(2405653, ex1:2017.02.21.0000.0000)",
+  "x64": [
+    {
+      "offset": 2597921,
+      "newLength": 1,
+      "newBytes": "EB1B488B86903100000FBED1488D8E90310000FF5058C686",
+      "oldBytes": "741B488B86903100000FBED1488D8E90310000FF5058C686"
+    },
+    {
+      "offset": 9524946,
+      "newLength": 1,
+      "newBytes": "EB24488B4E08488B01FF50388B96800400004C8B00488BC8",
+      "oldBytes": "7424488B4E08488B01FF50388B96800400004C8B00488BC8"
+    }
+  ],
+  "x32": [
+    {
+      "offset": 2049539,
+      "newLength": 1,
+      "newBytes": "EB1C8B935C2200008B522C0FBEC0508D8B5C220000FFD2C6",
+      "oldBytes": "741C8B935C2200008B522C0FBEC0508D8B5C220000FFD2C6"
+    },
+    {
+      "offset": 7449555,
+      "newLength": 1,
+      "newBytes": "EB208B4E048B118B421CFFD08B8E9C0300008B108B520451",
+      "oldBytes": "74208B4E048B118B421CFFD08B8E9C0300008B108B520451"
+    }
+  ]
 }
