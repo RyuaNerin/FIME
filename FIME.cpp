@@ -127,7 +127,7 @@ void DEBUGLOG(const std::wstring fmt_str, ...)
 #endif
 
 #ifndef _DEBUG
-RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, size_t cbUrl);
+RELEASE_RESULT checkLatestRelease();
 #endif
 
 BOOL getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr, DWORD* modBaseSize);
@@ -143,15 +143,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 #endif
 {
 #ifndef _DEBUG
-    WCHAR wBuffer[4096];
-    switch (checkLatestRelease(wBuffer, sizeof(wBuffer)))
+    switch (checkLatestRelease())
     {
-        case LATEST:
-            break;
-
         case NEW_RELEASE:
             MESSAGEBOX_INFOMATION(L"최신 버전이 릴리즈 되었습니다!");
-            ShellExecute(NULL, NULL, wBuffer, NULL, NULL, SW_SHOWNORMAL);
+            ShellExecute(NULL, NULL, L"\"https://github.com/RyuaNerin/FIME/releases/latest\"", NULL, NULL, SW_SHOWNORMAL);
             return 1;
 
         case NETWORK_ERROR:
@@ -461,7 +457,7 @@ bool getHttp(std::wstring host, std::wstring path, std::string &body)
 }
 
 #ifndef _DEBUG
-RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, size_t cbUrl)
+RELEASE_RESULT checkLatestRelease()
 {
     RELEASE_RESULT result = NETWORK_ERROR;
 
