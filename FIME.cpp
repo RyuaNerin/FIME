@@ -547,7 +547,7 @@ void hexToString(Json::Value value, BYTE** bytes, int *length)
     *length = (int)(str.length() / 2);
     BYTE* arr = new BYTE[*length];
 
-    for (SIZE_T i = 0; i < *length; ++i)
+    for (int i = 0; i < *length; ++i)
         arr[i] = hex2dec(cstr + i * 2);
 
     *bytes = arr;
