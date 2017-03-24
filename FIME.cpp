@@ -18,30 +18,22 @@
 "  \"version\": \"v3.3 (2017.02.24.0000.0000(2405653, ex1:2017.02.21.0000.0000)\"," \
 "  \"x64\": [" \
 "    {" \
-"      \"offset\": 2597921," \
-"      \"newLength\": 1," \
-"      \"newBytes\": \"EB1B488B86903100000FBED1488D8E90310000FF5058C686\"," \
-"      \"oldBytes\": \"741B488B86903100000FBED1488D8E90310000FF5058C686\"" \
+"      \"patch\": \"EB\"," \
+"      \"signature\": \"741B488B86903100000FBED1488D8E90310000FF5058C686\"" \
 "    }," \
 "    {" \
-"      \"offset\": 9524946," \
-"      \"newLength\": 1," \
-"      \"newBytes\": \"EB24488B4E08488B01FF50388B96800400004C8B00488BC8\"," \
-"      \"oldBytes\": \"7424488B4E08488B01FF50388B96800400004C8B00488BC8\"" \
+"      \"patch\": \"EB\"," \
+"      \"signature\": \"7424488B4E08488B01FF50388B96800400004C8B00488BC8\"" \
 "    }" \
 "  ]," \
 "  \"x32\": [" \
 "    {" \
-"      \"offset\": 2049539," \
-"      \"newLength\": 1," \
-"      \"newBytes\": \"EB1C8B935C2200008B522C0FBEC0508D8B5C220000FFD2C6\"," \
-"      \"oldBytes\": \"741C8B935C2200008B522C0FBEC0508D8B5C220000FFD2C6\"" \
+"      \"patch\": \"EB\"," \
+"      \"signature\": \"741C8B935C2200008B522C0FBEC0508D8B5C220000FFD2C6\"" \
 "    }," \
 "    {" \
-"      \"offset\": 7449555," \
-"      \"newLength\": 1," \
-"      \"newBytes\": \"EB208B4E048B118B421CFFD08B8E9C0300008B108B520451\"," \
-"      \"oldBytes\": \"74208B4E048B118B421CFFD08B8E9C0300008B108B520451\"" \
+"      \"patch\": \"EB\"," \
+"      \"signature\": \"74208B4E048B118B421CFFD08B8E9C0300008B108B520451\"" \
 "    }" \
 "  ]" \
 "}" \
@@ -49,20 +41,18 @@
 
 typedef struct _FIME_MEMORY
 {
-    size_t  offset;
-    size_t  newLength;
-    int8_t* newArr;
-    size_t  newArrLength;
-    int8_t* oldArr;
-    size_t  oldArrLength;
+    BYTE*   patch;
+    int     patchSize;
+    BYTE*   signature;
+    int     signatureSize;
 } FIME_MEMORY;
 typedef struct _FIME_PATCH
 {
     std::wstring version;
-    size_t       x32Count;
+    int          x32Count;
     FIME_MEMORY* x32;
 #if _WIN64
-    size_t       x64Count;
+    int          x64Count;
     FIME_MEMORY* x64;
 #endif
 } FIME_PATCH;
@@ -85,8 +75,8 @@ enum RELEASE_RESULT : DWORD
 };
 
 #ifndef _DEBUG
-#define MESSAGEBOX_INFOMATION(MSG)  MessageBox(NULL, MSG, PROJECT_NAME, MB_OK | MB_ICONINFORMATION)
-#define MESSAGEBOX_ASTERISK(MSG)    MessageBox(NULL, MSG, PROJECT_NAME, MB_OK | MB_ICONASTERISK)
+#define MESSAGEBOX_INFOMATION(MSG)  MessageBox(NULL, MSG, PROJECT_NAME, MB_OK | MB_ICONINFORMATION);
+#define MESSAGEBOX_ASTERISK(MSG)    MessageBox(NULL, MSG, PROJECT_NAME, MB_OK | MB_ICONASTERISK);
 #define DEBUGLOG
 #else
 #include <iostream>
@@ -136,12 +126,15 @@ void DEBUGLOG(const std::wstring fmt_str, ...)
 }
 #endif
 
+#ifndef _DEBUG
 RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, size_t cbUrl);
-BOOL getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr);
-DWORD getFileSize(LPCWSTR path);
-bool SetPrivilege();
-void getPatches(FIME_MEMORY** memory, size_t* memoryCount, Json::Value &arc);
+#endif
+
+BOOL getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr, DWORD* modBaseSize);
+bool setPrivilege();
+void getPatches(FIME_MEMORY** memory, int* memoryCount, Json::Value &patches);
 void getMemoryPatches();
+bool ffxivPatch(PROCESSENTRY32 pEntry, FIME_MEMORY* patch, int8_t patchCount);
 
 #ifdef _DEBUG
 int wmain(int argc, wchar_t **argv, wchar_t **env)
@@ -172,7 +165,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 #endif
 
     DEBUGLOG("ThreadPrivilege");
-    if (!SetPrivilege())
+    if (!setPrivilege())
     {
         MESSAGEBOX_ASTERISK(L"관리자 권한으로 실행시켜주세요!");
         return 1;
@@ -191,21 +184,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 
     getMemoryPatches();
 
-    FIME_RESULT res = NOT_FOUND;
+    bool res = false;
 
-    size_t       patchCount;
+    int          patchCount;
     FIME_MEMORY* patch;
-
-    DWORD pid;
-    HANDLE hProcess;
-    DWORD oldProtect;
-
-    PBYTE modBaseAddr;
-
-    int8_t buff[256];
-
-    void* offset;
-    size_t i;
 
     DEBUGLOG("Process32First");
     if (Process32First(snapshot, &entry))
@@ -232,67 +214,18 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
             }
 
             if (patch != nullptr)
-            {
-                pid = entry.th32ProcessID;
-
-                if (getFFXIVModule(pid, entry.szExeFile, &modBaseAddr))
-                {
-                    hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION | PROCESS_VM_READ | PROCESS_VM_WRITE, FALSE, pid);
-                    if (hProcess == NULL)
-                    {
-                        MESSAGEBOX_ASTERISK(L"관리자 권한으로 실행시켜주세요!");
-                        return 1;
-                    }
-
-                    for (i = 0; i < patchCount; ++i)
-                    {
-                        offset = modBaseAddr + patch[i].offset;
-                        ReadProcessMemory(hProcess, offset, buff, patch[i].newArrLength, NULL);
-                        if (std::memcmp(patch[i].newArr, buff, patch[i].newArrLength) == 0)
-                        {
-                            res = SUCCESS;
-                        }
-                        else
-                        {
-                            if (std::memcmp(patch[i].oldArr, buff, patch[i].oldArrLength) == 0)
-                            {
-                                if (VirtualProtectEx(hProcess, offset, patch[i].newLength, PAGE_EXECUTE_READWRITE, &oldProtect) == FALSE)
-                                {
-                                    MESSAGEBOX_ASTERISK(L"관리자 권한으로 실행시켜주세요!");
-                                    return 1;
-                                }
-
-                                WriteProcessMemory(hProcess, offset, patch[i].newArr, patch[i].newLength, NULL);
-                                VirtualProtectEx(hProcess, offset, patch[i].newLength, oldProtect, &oldProtect);
-
-                                res = SUCCESS;
-                            }
-                            else
-                            {
-                                if (res == NOT_FOUND)
-                                    res = NOT_SUPPORTED;
-                            }
-                        }
-                    }
-
-                    CloseHandle(hProcess);
-                }
-            }
+                res |= ffxivPatch(entry, patch, patchCount);
         } while (Process32Next(snapshot, &entry));
     }
 
     CloseHandle(snapshot);
 
-    switch (res)
+    if (res)
+        MESSAGEBOX_INFOMATION(L"성공적으로 적용했습니다!")
+    else
     {
-        case SUCCESS:       MESSAGEBOX_INFOMATION(L"성공적으로 적용했습니다!"); break;
-        case NOT_FOUND:     MESSAGEBOX_ASTERISK(L"파이널 판타지 14 가 실행중이 아닙니다."); break;
-        case NOT_SUPPORTED:
-        {
-            std::wstring message = L"지원되지 않는 파이널 판타지 14 버전입니다.\n\n지원되는 클라이언트 버전 : " + PATCH.version;
-            MESSAGEBOX_ASTERISK(message.c_str());
-            break;
-        }
+        std::wstring message = L"관리자 권한으로 실행중이 아니거나\n지원되지 않는 파이널 판타지 14 버전입니다.\n\n지원되는 클라이언트 버전 : " + PATCH.version;
+        MESSAGEBOX_ASTERISK(message.c_str())
     }
     
 #ifdef _DEBUG
@@ -303,7 +236,131 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
     return 0;
 }
 
-bool SetPrivilege()
+bool ffxivPatch(HANDLE hProcess, PBYTE modBaseAddr, DWORD modBaseSize, FIME_MEMORY patch);
+bool ffxivPatch(PROCESSENTRY32 pEntry, FIME_MEMORY* patch, int8_t patchCount)
+{
+    PBYTE modBaseAddr;
+    DWORD modBaseSize;
+
+    if (!getFFXIVModule(pEntry.th32ProcessID, pEntry.szExeFile, &modBaseAddr, &modBaseSize))
+        return false;
+    
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION | PROCESS_VM_READ | PROCESS_VM_WRITE, FALSE, pEntry.th32ProcessID);
+    if (hProcess == NULL)
+        return false;
+
+    for (int8_t i = 0; i < patchCount; ++i)
+        ffxivPatch(hProcess, modBaseAddr, modBaseSize, patch[i]);
+
+    return true;
+}
+
+int findArray(BYTE* source, int sourceSize, BYTE* value, int valueSize, int* nextPos);
+bool ffxivPatch(HANDLE hProcess, PBYTE modBaseAddr, DWORD modBaseSize, FIME_MEMORY patch)
+{
+    bool res = false;
+
+    PBYTE modBaseLimit = modBaseAddr + modBaseSize;
+
+    BYTE buff[20480];
+    SIZE_T read;
+    int nextPos;
+
+    int pos;
+
+    modBaseSize += patch.patchSize;
+    while (modBaseAddr < modBaseLimit)
+    {
+        if (!ReadProcessMemory(hProcess, modBaseAddr, buff, sizeof(buff), &read))
+            return false;
+
+        pos = findArray(buff, (int)read, patch.signature + patch.patchSize, patch.signatureSize - patch.patchSize, &nextPos);
+        if (pos != -1)
+        {
+            memset(buff, 0, patch.patchSize);
+            if (ReadProcessMemory(hProcess, modBaseAddr + pos - patch.patchSize, buff, patch.patchSize, &read) &&
+                read == patch.patchSize &&
+                memcmp(buff, patch.patch, patch.patchSize) == 0)
+                res = true;
+
+            else
+            {
+                PBYTE addr = modBaseAddr + pos - patch.patchSize;
+                SIZE_T written;
+
+                if (WriteProcessMemory(hProcess, addr, patch.patch, patch.patchSize, &written) && written == patch.patchSize)
+                    res = true;
+            }
+
+            modBaseAddr += pos + patch.signatureSize;
+        }
+        else
+        {
+            modBaseAddr += read - patch.signatureSize;
+        }
+    }
+
+    return res;
+}
+
+void computeKMS(const BYTE* pattern, int patternSize, int* lps);
+int findArray(BYTE* source, int sourceSize, BYTE* pattern, int patternSize, int* nextPos)
+{
+    std::unique_ptr<int[]> lps(new int[patternSize]);
+
+    computeKMS(pattern, patternSize, lps.get());
+
+    int i = 0;
+    int j = 0;
+    while (i < sourceSize)
+    {
+        if (source[i] == pattern[j])
+        {
+            j++;
+            i++;
+        }
+
+        if (j == patternSize)
+            return i - j;
+
+        if (i < sourceSize && source[i] != pattern[j])
+        {
+            if (j != 0)
+                j = lps[j - 1];
+            else
+                i = i + 1;
+        }
+    }
+    
+    return -1;
+}
+void computeKMS(const BYTE* pattern, int patternSize, int* lps)
+{
+    int len = 0;
+    lps[0] = 0;
+
+    int i = 1;
+    while (i < patternSize)
+    {
+        if (pattern[i] == pattern[len])
+        {
+            len++;
+            lps[i] = len;
+            i++;
+        }
+        else if (len != 0)
+        {
+            len = lps[len-1];
+        }
+        else
+        {
+            lps[i] = 0;
+            i++;
+        }
+    }
+}
+
+bool setPrivilege()
 {
     bool res = false;
 
@@ -312,7 +369,7 @@ bool SetPrivilege()
     if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, &hToken) == TRUE)
     {
         LUID luid;
-        if (LookupPrivilegeValueW(NULL, SE_DEBUG_NAME, &luid) == TRUE)
+        if (LookupPrivilegeValue(NULL, SE_DEBUG_NAME, &luid) == TRUE)
         {
             TOKEN_PRIVILEGES priviliges = { 0, };
 
@@ -326,7 +383,6 @@ bool SetPrivilege()
 
         CloseHandle(hToken);
     }
-
 
     return res;
 }
@@ -404,6 +460,7 @@ bool getHttp(std::wstring host, std::wstring path, std::string &body)
     return res;
 }
 
+#ifndef _DEBUG
 RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, size_t cbUrl)
 {
     RELEASE_RESULT result = NETWORK_ERROR;
@@ -425,28 +482,19 @@ RELEASE_RESULT checkLatestRelease(LPWSTR lpUrl, size_t cbUrl)
             }
             else
             {
-                std::string html_url = json["html_url"].asString();
-
-                int length = MultiByteToWideChar(CP_UTF8, 0, html_url.c_str(), (int)html_url.size(), NULL, 0);
-                if (length > 0)
-                {
-                    std::unique_ptr<wchar_t[]> wbuf(new wchar_t[length + 1]());
-                    MultiByteToWideChar(CP_UTF8, 0, html_url.c_str(), (int)html_url.size(), wbuf.get(), length);
-
-                    memcpy_s(lpUrl, cbUrl, &wbuf[0], length);
-                    result = NEW_RELEASE;
-                }
+                result = NEW_RELEASE;
             }
         }
     }
 
     return result;
 }
+#endif
 
 void getMemoryPatches()
 {
     std::string body;
-#ifdef DEBUG
+#ifndef _DEBUG
     if (!getHttp(L"raw.githubusercontent.com", L"/RyuaNerin/FIME/master/patch.json", body))
 #endif
         body.append(DEFAULT_PATCH_JSON);
@@ -473,8 +521,8 @@ void getMemoryPatches()
 #endif
 }
 
-void hexToString(Json::Value value, int8_t** bytes, size_t *length);
-void getPatches(FIME_MEMORY** memory, size_t* memoryCount, Json::Value &patches)
+void hexToString(Json::Value value, BYTE** bytes, int *length);
+void getPatches(FIME_MEMORY** memory, int* memoryCount, Json::Value &patches)
 {
     Json::Value patch;
 
@@ -485,22 +533,19 @@ void getPatches(FIME_MEMORY** memory, size_t* memoryCount, Json::Value &patches)
     for (index = 0; index < patches.size(); ++index)
     {
         patch = patches[index];
-        (*memory)[index].offset    = (size_t)patch["offset"].asInt64();
-        (*memory)[index].newLength = (size_t)patch["newLength"].asInt64();
-
-        hexToString(patch["oldBytes"], &((*memory)[index].oldArr), &((*memory)[index].oldArrLength));
-        hexToString(patch["newBytes"], &((*memory)[index].newArr), &((*memory)[index].newArrLength));
+        hexToString(patch["signature"], &((*memory)[index].signature), &((*memory)[index].signatureSize));
+        hexToString(patch["patch"],     &((*memory)[index].patch),     &((*memory)[index].patchSize));
     }
 }
 
-int8_t hex2dec(const char *hex);
-void hexToString(Json::Value value, int8_t** bytes, size_t *length)
+BYTE hex2dec(const char *hex);
+void hexToString(Json::Value value, BYTE** bytes, int *length)
 {
     std::string  str = value.asCString();
     const char* cstr = str.c_str();
 
-    *length = (size_t)(str.length() / 2);
-    int8_t* arr = new int8_t[*length];
+    *length = (int)(str.length() / 2);
+    BYTE* arr = new BYTE[*length];
 
     for (SIZE_T i = 0; i < *length; ++i)
         arr[i] = hex2dec(cstr + i * 2);
@@ -508,9 +553,9 @@ void hexToString(Json::Value value, int8_t** bytes, size_t *length)
     *bytes = arr;
 }
 
-int8_t hex2dec(const char *hex)
+BYTE hex2dec(const char *hex)
 {
-    int8_t val = 0;
+    BYTE val = 0;
 
          if (hex[0] >= '0' && hex[0] <= '9') val = (hex[0] - '0') << 4;
     else if (hex[0] >= 'a' && hex[0] <= 'f') val = (hex[0] - 'a' + 10) << 4;
@@ -523,19 +568,7 @@ int8_t hex2dec(const char *hex)
     return val;
 }
 
-DWORD getFileSize(LPCWSTR path)
-{
-    HANDLE hFile = CreateFile(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (hFile == INVALID_HANDLE_VALUE)
-        return -1;
-
-    DWORD size = GetFileSize(hFile, NULL);
-
-    CloseHandle(hFile);
-    return size;
-}
-
-BOOL getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr)
+BOOL getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr, DWORD* modBaseSize)
 {
     BOOL res = FALSE;
 
@@ -552,6 +585,7 @@ BOOL getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr)
                 if (lstrcmpi(snapEntry.szModule, lpModuleName) == 0)
                 {
                     *modBaseAddr = snapEntry.modBaseAddr;
+                    *modBaseSize = snapEntry.modBaseSize;
                     res = TRUE;
                     break;
                 }
@@ -563,7 +597,9 @@ BOOL getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr)
     return res;
 }
 
+#ifndef _DEBUG
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     return DefWindowProc(hWnd, message, wParam, lParam);
 }
+#endif
