@@ -1,5 +1,6 @@
 ﻿#include <regex>
 #include <memory>
+#include <cmath>
 
 #include <windows.h>
 #include <tlhelp32.h>
@@ -11,9 +12,11 @@
 
 #include "resource.h"
 
-#define PROJECT_NAME            L"FIME v" TEXT(VERSION_STR)
+#define FIME_BUFFERSIZE     20480
 
-#define DEFAULT_PATCH_JSON \
+#define FIME_PROJECT_NAME   L"FIME v" TEXT(FIME_VERSION_STR)
+
+#define FIME_DEFAULT_PATCH_JSON \
 "{" \
 "  \"version\": \"v3.3 (2017.02.24.0000.0000(2405653, ex1:2017.02.21.0000.0000)\"," \
 "  \"x64\": [" \
@@ -48,7 +51,7 @@ typedef struct _FIME_MEMORY
 } FIME_MEMORY;
 typedef struct _FIME_PATCH
 {
-    std::wstring version;
+    std::wstring *version;
     int          x32Count;
     FIME_MEMORY* x32;
 #if _WIN64
@@ -59,13 +62,6 @@ typedef struct _FIME_PATCH
 
 FIME_PATCH PATCH;
 
-enum FIME_RESULT : DWORD
-{
-    NOT_FOUND,
-    SUCCESS,
-    NOT_SUPPORTED
-};
-
 enum RELEASE_RESULT : DWORD
 {
     LATEST,
@@ -73,10 +69,16 @@ enum RELEASE_RESULT : DWORD
     NETWORK_ERROR,
     PARSING_ERROR
 };
+enum PATCH_RESULT : DWORD
+{
+    SUCCESS,
+    NOT_SUPPORTED,
+    REQUIRE_ADMIN
+};
 
 #ifndef _DEBUG
-#define MESSAGEBOX_INFOMATION(MSG)  MessageBox(NULL, MSG, PROJECT_NAME, MB_OK | MB_ICONINFORMATION);
-#define MESSAGEBOX_ASTERISK(MSG)    MessageBox(NULL, MSG, PROJECT_NAME, MB_OK | MB_ICONASTERISK);
+#define MESSAGEBOX_INFOMATION(MSG)  MessageBox(NULL, MSG, FIME_PROJECT_NAME, MB_OK | MB_ICONINFORMATION);
+#define MESSAGEBOX_ASTERISK(MSG)    MessageBox(NULL, MSG, FIME_PROJECT_NAME, MB_OK | MB_ICONASTERISK);
 #define DEBUGLOG
 #else
 #include <iostream>
@@ -134,7 +136,7 @@ BOOL getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr, DWORD* 
 bool setPrivilege();
 void getPatches(FIME_MEMORY** memory, int* memoryCount, Json::Value &patches);
 void getMemoryPatches();
-bool ffxivPatch(PROCESSENTRY32 pEntry, FIME_MEMORY* patch, int8_t patchCount);
+PATCH_RESULT ffxivPatch(PROCESSENTRY32 pEntry, FIME_MEMORY* patch, int8_t patchCount);
 
 #ifdef _DEBUG
 int wmain(int argc, wchar_t **argv, wchar_t **env)
@@ -151,7 +153,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
             return 1;
 
         case NETWORK_ERROR:
-            if (MessageBox(NULL, L"최신 릴리즈 정보를 가져오지 못하였습니다.\n계속 실행하시겠습니까?", PROJECT_NAME, MB_YESNO | MB_ICONQUESTION) == IDNO)
+            if (MessageBox(NULL, L"최신 릴리즈 정보를 가져오지 못하였습니다.\n계속 실행하시겠습니까?", FIME_PROJECT_NAME, MB_YESNO | MB_ICONQUESTION) == IDNO)
                 return -1;
 
         case PARSING_ERROR:
@@ -180,7 +182,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 
     getMemoryPatches();
 
-    bool res = false;
+    PATCH_RESULT res;
 
     int          patchCount;
     FIME_MEMORY* patch;
@@ -210,19 +212,28 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
             }
 
             if (patch != nullptr)
-                res |= ffxivPatch(entry, patch, patchCount);
+            {
+                res = ffxivPatch(entry, patch, patchCount);
+                switch (res)
+                {
+                    case NOT_SUPPORTED:
+                    {
+                        std::wstring message = L"지원되지 않는 파이널 판타지 14 버전입니다.\n\n지원되는 클라이언트 버전 : " + *PATCH.version;
+                        MESSAGEBOX_ASTERISK(message.c_str())
+                        return 1;
+                    }
+
+                    case REQUIRE_ADMIN:
+                        MESSAGEBOX_ASTERISK( L"관리자 권한으로 실행시켜주세요!")
+                        return 1;
+                }
+            }
         } while (Process32Next(snapshot, &entry));
     }
 
     CloseHandle(snapshot);
 
-    if (res)
-        MESSAGEBOX_INFOMATION(L"성공적으로 적용했습니다!")
-    else
-    {
-        std::wstring message = L"관리자 권한으로 실행중이 아니거나\n지원되지 않는 파이널 판타지 14 버전입니다.\n\n지원되는 클라이언트 버전 : " + PATCH.version;
-        MESSAGEBOX_ASTERISK(message.c_str())
-    }
+    MESSAGEBOX_INFOMATION(L"성공적으로 적용했습니다!")
     
 #ifdef _DEBUG
     std::string temp;
@@ -232,48 +243,62 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
     return 0;
 }
 
-bool ffxivPatch(HANDLE hProcess, PBYTE modBaseAddr, DWORD modBaseSize, FIME_MEMORY patch);
-bool ffxivPatch(PROCESSENTRY32 pEntry, FIME_MEMORY* patch, int8_t patchCount)
+PATCH_RESULT ffxivPatch(HANDLE hProcess, PBYTE modBaseAddr, DWORD modBaseSize, FIME_MEMORY patch);
+PATCH_RESULT ffxivPatch(PROCESSENTRY32 pEntry, FIME_MEMORY* patch, int8_t patchCount)
 {
     PBYTE modBaseAddr;
     DWORD modBaseSize;
 
     if (!getFFXIVModule(pEntry.th32ProcessID, pEntry.szExeFile, &modBaseAddr, &modBaseSize))
-        return false;
+        return REQUIRE_ADMIN;
     
     HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION | PROCESS_VM_READ | PROCESS_VM_WRITE, FALSE, pEntry.th32ProcessID);
     if (hProcess == NULL)
-        return false;
+        return REQUIRE_ADMIN;
 
+    PATCH_RESULT result;
     for (int8_t i = 0; i < patchCount; ++i)
-        ffxivPatch(hProcess, modBaseAddr, modBaseSize, patch[i]);
+    {
+        result = ffxivPatch(hProcess, modBaseAddr, modBaseSize, patch[i]);
+        if (result != SUCCESS)
+            return result;
+    }
 
-    return true;
+    return SUCCESS;
 }
 
-int findArray(BYTE* source, int sourceSize, BYTE* value, int valueSize, int* nextPos);
-bool ffxivPatch(HANDLE hProcess, PBYTE modBaseAddr, DWORD modBaseSize, FIME_MEMORY patch)
+int findArray(BYTE* source, int sourceSize, BYTE* pattern, int patternSize, int* nextPos);
+PATCH_RESULT ffxivPatch(HANDLE hProcess, PBYTE modBaseAddr, DWORD modBaseSize, FIME_MEMORY patch)
 {
     bool res = false;
 
-    PBYTE modBaseLimit = modBaseAddr + modBaseSize;
+    PBYTE modBaseLimit = modBaseAddr + modBaseSize - patch.signatureSize;
 
-    BYTE buff[20480];
+    BYTE buff[FIME_BUFFERSIZE];
     SIZE_T read;
     int nextPos;
 
+    SIZE_T toRead;
     int pos;
 
     modBaseSize += patch.patchSize;
     while (modBaseAddr < modBaseLimit)
     {
-        if (!ReadProcessMemory(hProcess, modBaseAddr, buff, sizeof(buff), &read))
-            return false;
+        toRead = (SIZE_T)(modBaseLimit - modBaseAddr);
+        if (toRead > sizeof(buff))
+            toRead = sizeof(buff);
+
+        if (toRead < patch.signatureSize)
+            break;
+
+        if (!ReadProcessMemory(hProcess, modBaseAddr, buff, toRead, &read))
+            return REQUIRE_ADMIN;
 
         pos = findArray(buff, (int)read, patch.signature + patch.patchSize, patch.signatureSize - patch.patchSize, &nextPos);
         if (pos != -1)
         {
             memset(buff, 0, patch.patchSize);
+
             if (ReadProcessMemory(hProcess, modBaseAddr + pos - patch.patchSize, buff, patch.patchSize, &read) &&
                 read == patch.patchSize &&
                 memcmp(buff, patch.patch, patch.patchSize) == 0)
@@ -292,19 +317,21 @@ bool ffxivPatch(HANDLE hProcess, PBYTE modBaseAddr, DWORD modBaseSize, FIME_MEMO
         }
         else
         {
-            modBaseAddr += read - patch.signatureSize;
+            modBaseAddr += read - patch.signatureSize + 1;
         }
     }
 
-    return res;
+    if (res)
+        return SUCCESS;
+    else
+        return NOT_SUPPORTED;
 }
 
 void computeKMS(const BYTE* pattern, int patternSize, int* lps);
 int findArray(BYTE* source, int sourceSize, BYTE* pattern, int patternSize, int* nextPos)
 {
-    std::unique_ptr<int[]> lps(new int[patternSize]);
-
-    computeKMS(pattern, patternSize, lps.get());
+    int lps[FIME_BUFFERSIZE];
+    computeKMS(pattern, patternSize, lps);
 
     int i = 0;
     int j = 0;
@@ -398,7 +425,7 @@ bool getHttp(std::wstring host, std::wstring path, std::string &body)
     DWORD dwSize;
     DWORD dwRead;
 
-    hSession = WinHttpOpen(PROJECT_NAME, WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    hSession = WinHttpOpen(FIME_PROJECT_NAME, WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (hSession)
         bResults = WinHttpSetTimeouts(hSession, 5000, 5000, 5000, 5000);
     if (bResults)
@@ -472,7 +499,7 @@ RELEASE_RESULT checkLatestRelease()
         if (jsonReader.parse(body, json))
         {
             std::string tag_name = json["tag_name"].asString();
-            if (tag_name.compare(VERSION_STR) == 0)
+            if (tag_name.compare(FIME_VERSION_STR) == 0)
             {
                 result = LATEST;
             }
@@ -493,14 +520,14 @@ void getMemoryPatches()
 #ifndef _DEBUG
     if (!getHttp(L"raw.githubusercontent.com", L"/RyuaNerin/FIME/master/patch.json", body))
 #endif
-        body.append(DEFAULT_PATCH_JSON);
+        body.append(FIME_DEFAULT_PATCH_JSON);
     
     Json::Reader jsonReader;
     Json::Value json;
     if (!jsonReader.parse(body, json))
     {
         body.clear();
-        body.append(DEFAULT_PATCH_JSON);
+        body.append(FIME_DEFAULT_PATCH_JSON);
 
         jsonReader.parse(body, json);
     }
@@ -508,7 +535,7 @@ void getMemoryPatches()
     std::string version = json["version"].asString();
 
     std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> c2wc;
-    PATCH.version = c2wc.from_bytes(version);
+    PATCH.version = new std::wstring(c2wc.from_bytes(version));
     
     getPatches(&PATCH.x32, &PATCH.x32Count, json["x32"]);
 
