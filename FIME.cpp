@@ -93,7 +93,7 @@ void DEBUGLOG(const std::string fmt_str, ...)
     while (1)
     {
         formatted.reset(new char[n]);
-        std::strcpy(&formatted[0], fmt_str.c_str());
+		fmt_str._Copy_s(formatted.get(), n, fmt_str.size(), 0);
         va_start(va, fmt_str);
         final_n = vsnprintf_s(&formatted[0], n, n - 1, fmt_str.c_str(), va);
         va_end(va);
@@ -132,7 +132,7 @@ void DEBUGLOG(const std::wstring fmt_str, ...)
 RELEASE_RESULT checkLatestRelease();
 #endif
 
-BOOL getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr, DWORD* modBaseSize);
+bool getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr, DWORD* modBaseSize);
 bool setPrivilege();
 void getPatches(FIME_MEMORY** memory, int* memoryCount, Json::Value &patches);
 void getMemoryPatches();
@@ -410,7 +410,7 @@ bool setPrivilege()
     return res;
 }
 
-bool getHttp(std::wstring host, std::wstring path, std::string &body)
+bool getHttp(LPCWSTR host, LPCWSTR path, std::string &body)
 {
     bool res = false;
 
@@ -429,9 +429,9 @@ bool getHttp(std::wstring host, std::wstring path, std::string &body)
     if (hSession)
         bResults = WinHttpSetTimeouts(hSession, 5000, 5000, 5000, 5000);
     if (bResults)
-        hConnect = WinHttpConnect(hSession, host.c_str(), INTERNET_DEFAULT_HTTPS_PORT, 0);
+        hConnect = WinHttpConnect(hSession, host, INTERNET_DEFAULT_HTTPS_PORT, 0);
     if (hConnect)
-        hRequest = WinHttpOpenRequest(hConnect, L"GET", path.c_str(), NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+        hRequest = WinHttpOpenRequest(hConnect, L"GET", path, NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
     if (hRequest)
         bResults = WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, NULL);
     if (bResults)
@@ -459,16 +459,10 @@ bool getHttp(std::wstring host, std::wstring path, std::string &body)
                 body.resize(dwOffset + dwSize);
 
                 bResults = WinHttpReadData(hRequest, &body[dwOffset], dwSize, &dwRead);
-                if (!bResults)
-                {
-                    dwRead = 0;
-                    break;
-                }
+				if (!bResults || dwRead == 0)
+					break;
 
                 body.resize(dwOffset + dwRead);
-
-                if (dwRead == 0)
-                    break;
 
                 dwSize -= dwRead;
             }
@@ -591,9 +585,9 @@ BYTE hex2dec(const char *hex)
     return val;
 }
 
-BOOL getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr, DWORD* modBaseSize)
+bool getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr, DWORD* modBaseSize)
 {
-    BOOL res = FALSE;
+    bool res = false;
 
     MODULEENTRY32 snapEntry = { 0 };
     snapEntry.dwSize = sizeof(MODULEENTRY32);
@@ -609,7 +603,7 @@ BOOL getFFXIVModule(DWORD pid, LPCWSTR lpModuleName, PBYTE* modBaseAddr, DWORD* 
                 {
                     *modBaseAddr = snapEntry.modBaseAddr;
                     *modBaseSize = snapEntry.modBaseSize;
-                    res = TRUE;
+                    res = true;
                     break;
                 }
             } while (Module32Next(hSnapshot, & snapEntry));
