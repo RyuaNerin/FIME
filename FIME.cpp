@@ -12,27 +12,27 @@
 
 #include "resource.h"
 
-#define FIME_BUFFERSIZE     20480
+#define FIME_BUFFERSIZE     2048
 
 #define FIME_PROJECT_NAME   L"FIME v" TEXT(FIME_VERSION_STR)
 
 #define FIME_DEFAULT_PATCH_JSON \
 "{" \
-"  \"version\": \"v3.3 (2017.02.24.0000.0000(2405653, ex1:2017.02.21.0000.0000)\"," \
+"  \"version\": \"v3.4 (2017.05.23.0000.0000(2603565, ex1:2017.05.18.0000.0000)\"," \
 "  \"x64\": [" \
 "    {" \
-"      \"patch\": \"EB\"," \
-"      \"signature\": \"741B488B86903100000FBED1488D8E90310000FF5058C686\"" \
+"      \"patch\":     \"EB\"," \
+"      \"signature\": \"741B488B86307100000FBED1488D8E30710000FF5058C686\"" \
 "    }," \
 "    {" \
-"      \"patch\": \"EB\"," \
+"      \"patch\":     \"EB\"," \
 "      \"signature\": \"7424488B4E08488B01FF50388B96800400004C8B00488BC8\"" \
 "    }" \
 "  ]," \
 "  \"x32\": [" \
 "    {" \
 "      \"patch\": \"EB\"," \
-"      \"signature\": \"741C8B935C2200008B522C0FBEC0508D8B5C220000FFD2C6\"" \
+"      \"signature\": \"741C8B93184200008B522C0FBEC0508D8B18420000FFD2C6\"" \
 "    }," \
 "    {" \
 "      \"patch\": \"EB\"," \
@@ -511,9 +511,9 @@ RELEASE_RESULT checkLatestRelease()
 void getMemoryPatches()
 {
     std::string body;
-#ifndef _DEBUG
+//#ifndef _DEBUG
     if (!getHttp(L"raw.githubusercontent.com", L"/RyuaNerin/FIME/master/patch.json", body))
-#endif
+//#endif
         body.append(FIME_DEFAULT_PATCH_JSON);
     
     Json::Reader jsonReader;
