@@ -46,7 +46,7 @@ int wmain(int argc, wchar_t **argv, wchar_t **env)
 #else
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int cmdShow)
 {
-    bool noMessageBox = std::wcsstr(lpCmdLine, L"/q");
+    bool noMessageBox = !std::wcsstr(lpCmdLine, L"/q");
 #endif
 
 #ifndef _DEBUG
