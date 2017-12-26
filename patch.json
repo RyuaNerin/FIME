@@ -4,6 +4,10 @@
     {
       "patch": "EB",
       "signature": "7424488B4B08488B01FF50388B9380040000488BC84C8B00"
+    },
+    {
+      "patch": "EB",
+      "signature": "741B488B87A07000000FBED1488D8FA0700000FF5058C687"
     }
   ],
   "x32": [
